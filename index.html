@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#006633">
+<title>Tasks</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<style>
+:root{
+  --green:#006633; --yellow:#f9b741;
+  --bg:#ffffff; --panel:#f3f5fb; --ink:#000002; --muted:#5b6470;
+  --line:#e3e7ee; --card:#ffffff; --shadow:0 1px 2px rgba(0,0,0,.08),0 4px 14px rgba(0,0,0,.05);
+  --safe-b:env(safe-area-inset-bottom,0px); --safe-t:env(safe-area-inset-top,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root{ --bg:#0f1311; --panel:#161b19; --ink:#eef2ef; --muted:#98a3a0;
+    --line:#242b28; --card:#161b19; --shadow:none; }
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;height:100%}
+body{
+  background:var(--bg); color:var(--ink);
+  font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  overscroll-behavior-y:contain;
+}
+button,input,textarea,select{font:inherit;color:inherit}
+button{background:none;border:0;padding:0;cursor:pointer}
+
+/* ---------- top bar ---------- */
+header{
+  position:sticky; top:0; z-index:20; background:var(--bg);
+  padding:calc(var(--safe-t) + 10px) 14px 8px; border-bottom:1px solid var(--line);
+}
+.brandrow{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.brandrow h1{font-size:18px;margin:0;font-weight:700;letter-spacing:-.2px;flex:1}
+.chip{
+  font-size:11px;font-weight:600;padding:4px 9px;border-radius:999px;
+  background:var(--panel);color:var(--muted);white-space:nowrap
+}
+.chip.ok{background:rgba(0,102,51,.12);color:var(--green)}
+@media (prefers-color-scheme:dark){.chip.ok{color:#5fd39a}}
+.chip.warn{background:rgba(249,183,65,.2);color:#8a5f00}
+@media (prefers-color-scheme:dark){.chip.warn{color:var(--yellow)}}
+.chip.err{background:rgba(200,40,40,.14);color:#b02020}
+.iconbtn{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;color:var(--muted)}
+.iconbtn:active{background:var(--panel)}
+
+/* ---------- quick add ---------- */
+.addwrap{display:flex;gap:8px;align-items:center}
+.addwrap input{
+  flex:1;min-width:0;background:var(--panel);border:1px solid transparent;border-radius:14px;
+  padding:13px 14px;font-size:16px;outline:none
+}
+.addwrap input:focus{border-color:var(--green);background:var(--bg)}
+.addbtn{
+  width:46px;height:46px;flex:0 0 46px;border-radius:14px;background:var(--green);
+  color:#fff;display:grid;place-items:center;font-size:24px;font-weight:400;line-height:1
+}
+.addbtn:disabled{opacity:.35}
+.segs{display:flex;gap:6px;margin-top:8px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+.segs::-webkit-scrollbar{display:none}
+.seg{
+  font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:999px;
+  background:var(--panel);color:var(--muted);white-space:nowrap;border:1px solid transparent
+}
+.seg[aria-pressed="true"]{background:var(--green);color:#fff}
+
+/* ---------- list ---------- */
+main{padding:6px 12px calc(120px + var(--safe-b))}
+section.sec{margin-top:14px}
+.sechead{
+  display:flex;align-items:center;gap:8px;width:100%;
+  padding:8px 4px;font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)
+}
+.sechead .count{font-weight:600;letter-spacing:0;text-transform:none;font-size:12px;opacity:.75}
+.sechead .caret{margin-left:auto;transition:transform .15s;font-size:11px;opacity:.6}
+.sechead[aria-expanded="false"] .caret{transform:rotate(-90deg)}
+ul.tasks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+li.task{
+  display:flex;align-items:flex-start;gap:2px;background:var(--card);border:1px solid var(--line);
+  border-radius:14px;box-shadow:var(--shadow);overflow:hidden
+}
+li.task.pending{opacity:.55}
+.check{
+  flex:0 0 46px;height:46px;display:grid;place-items:center;align-self:stretch;min-height:46px
+}
+.box{
+  width:22px;height:22px;border-radius:7px;border:2px solid var(--muted);
+  display:grid;place-items:center;color:transparent;font-size:14px;transition:.12s
+}
+.check:active .box{transform:scale(.86)}
+li.done .box{background:var(--green);border-color:var(--green);color:#fff}
+.ttl{
+  flex:1;text-align:left;padding:12px 12px 12px 2px;font-size:15.5px;line-height:1.35;
+  word-break:break-word;min-height:46px;display:flex;align-items:center
+}
+li.done .ttl{color:var(--muted);text-decoration:line-through}
+.empty{padding:10px 6px;color:var(--muted);font-size:14px;font-style:italic}
+
+/* ---------- sheet ---------- */
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.42);z-index:40;opacity:0;pointer-events:none;transition:opacity .18s}
+.scrim.on{opacity:1;pointer-events:auto}
+.sheet{
+  position:fixed;left:0;right:0;bottom:0;z-index:50;background:var(--bg);
+  border-radius:20px 20px 0 0;padding:8px 0 calc(10px + var(--safe-b));
+  transform:translateY(102%);transition:transform .22s cubic-bezier(.2,.8,.3,1);
+  max-height:86vh;overflow:auto;box-shadow:0 -8px 30px rgba(0,0,0,.2)
+}
+.sheet.on{transform:translateY(0)}
+.grab{width:38px;height:4px;border-radius:99px;background:var(--line);margin:6px auto 10px}
+.sheet .st{padding:4px 20px 12px;font-weight:600;font-size:15px;word-break:break-word}
+.row{display:flex;align-items:center;gap:14px;width:100%;padding:14px 20px;text-align:left;font-size:15.5px}
+.row:active{background:var(--panel)}
+.row .ic{width:22px;text-align:center;opacity:.7;flex:0 0 22px}
+.row.danger{color:#c62828}
+.sep{height:1px;background:var(--line);margin:6px 20px}
+
+/* ---------- setup ---------- */
+.setup{padding:22px 18px calc(30px + var(--safe-b));max-width:520px;margin:0 auto}
+.setup h2{font-size:20px;margin:0 0 6px}
+.setup p{color:var(--muted);font-size:14px;margin:0 0 18px}
+.f{margin-bottom:14px}
+.f label{display:block;font-size:12.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:6px}
+.f input{width:100%;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 13px;outline:none}
+.f input:focus{border-color:var(--green)}
+.f .hint{font-size:12.5px;color:var(--muted);margin-top:5px}
+.primary{width:100%;background:var(--green);color:#fff;border-radius:14px;padding:15px;font-weight:700;font-size:16px}
+.ghost{width:100%;padding:13px;font-weight:600;color:var(--muted);margin-top:8px}
+.note{background:var(--panel);border-radius:12px;padding:12px 14px;font-size:13px;color:var(--muted);margin-bottom:18px}
+.err{background:rgba(200,40,40,.1);color:#b02020;border-radius:12px;padding:11px 14px;font-size:13.5px;margin-bottom:14px}
+a{color:var(--green)}
+@media (prefers-color-scheme:dark){a{color:#5fd39a}}
+
+/* ---------- snackbar ---------- */
+.snack{
+  position:fixed;left:12px;right:12px;bottom:calc(14px + var(--safe-b));z-index:60;
+  background:#1f2623;color:#fff;border-radius:14px;padding:13px 16px;display:flex;align-items:center;gap:12px;
+  box-shadow:0 6px 24px rgba(0,0,0,.3);transform:translateY(140%);transition:transform .2s;font-size:14.5px
+}
+.snack.on{transform:translateY(0)}
+.snack button{color:var(--yellow);font-weight:700;margin-left:auto;padding:4px 6px}
+.hidden{display:none !important}
+</style>
+</head>
+<body>
+
+<div id="app" class="hidden">
+  <header>
+    <div class="brandrow">
+      <h1>Tasks</h1>
+      <span id="status" class="chip">…</span>
+      <button class="iconbtn" id="refreshBtn" aria-label="Refresh">&#10227;</button>
+      <button class="iconbtn" id="settingsBtn" aria-label="Settings">&#9881;</button>
+    </div>
+    <div class="addwrap">
+      <input id="addInput" type="text" placeholder="Add a task" enterkeyhint="done"
+             autocomplete="off" autocapitalize="sentences" spellcheck="true">
+      <button class="addbtn" id="addBtn" aria-label="Add">+</button>
+    </div>
+    <div class="segs" id="segs"></div>
+  </header>
+  <main id="list"></main>
+</div>
+
+<div id="setup" class="setup hidden">
+  <h2>Connect your task file</h2>
+  <p>This app reads and writes one Markdown file in a private GitHub repo. Your Obsidian vault stays in sync through the same repo.</p>
+  <div id="setupErr" class="err hidden"></div>
+  <div class="note">Your token is stored only on this device, in this browser. It is never sent anywhere except GitHub.</div>
+  <div class="f">
+    <label for="cToken">GitHub token</label>
+    <input id="cToken" type="password" placeholder="github_pat_..." autocomplete="off">
+    <div class="hint">Fine-grained token, scoped to one repo, with <b>Contents: Read and write</b>.</div>
+  </div>
+  <div class="f"><label for="cOwner">Owner (your GitHub username)</label><input id="cOwner" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+  <div class="f"><label for="cRepo">Repo</label><input id="cRepo" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="obsidian"></div>
+  <div class="f"><label for="cPath">File path in repo</label><input id="cPath" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="001 Tasks.md"></div>
+  <div class="f"><label for="cBranch">Branch</label><input id="cBranch" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="main"></div>
+  <button class="primary" id="saveCfg">Connect</button>
+  <button class="ghost hidden" id="cancelCfg">Cancel</button>
+  <button class="ghost hidden" id="forgetCfg">Disconnect and forget token</button>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="sheet">
+  <div class="grab"></div>
+  <div class="st" id="sheetTitle"></div>
+  <div id="sheetRows"></div>
+</div>
+<div class="snack" id="snack"><span id="snackMsg"></span><button id="snackAct">Undo</button></div>
+
+<script>
+"use strict";
+
+/* ============================ config ============================ */
+const SECTIONS = [
+  { id:"today", h:"Today"       },
+  { id:"week",  h:"This week"   },
+  { id:"long",  h:"Longer term" },
+  { id:"ice",   h:"Ice box"     },
+];
+const DONE_H = "Done";
+const ALL_H  = SECTIONS.map(s => s.h).concat([DONE_H]);
+
+// Old heading names in the vault map onto the new ones.
+const ALIASES = {
+  "later":"Longer term", "long term":"Longer term", "longer term":"Longer term",
+  "someday / maybe":"Ice box", "someday/maybe":"Ice box", "someday":"Ice box",
+  "icebox":"Ice box", "ice box":"Ice box",
+  "this week":"This week", "today":"Today", "done":"Done",
+};
+const canonHeading = t => ALIASES[t.trim().toLowerCase()] || t.trim();
+
+const LS = { cfg:"tasks.cfg", queue:"tasks.queue", cache:"tasks.cache", seg:"tasks.seg", closed:"tasks.closed" };
+const API = "https://api.github.com";
+
+/* ============================ state ============================ */
+let cfg    = load(LS.cfg, null);
+let queue  = load(LS.queue, []);
+let doc    = null;          // { pre:[], blocks:[{h,items:[]}] }
+let sha    = null;
+let closed = new Set(load(LS.closed, [DONE_H]));
+let addSec = load(LS.seg, "This week");   // matches the vault default; tap a chip to change it
+let flushT = null, pollT = null, snackT = null, undoOp = null, busy = false;
+
+function load(k, d){ try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e){ return d; } }
+function save(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
+
+const $ = id => document.getElementById(id);
+
+/* ============================ markdown ============================ */
+const TASK_RE = /^(\s*)[-*]\s+\[([ xX])\]\s?(.*)$/;
+
+function parse(text){
+  const lines = text.replace(/\r\n/g,"\n").split("\n");
+  const out = { pre:[], blocks:[] };
+  let cur = null;
+  for (const line of lines){
+    const hm = line.match(/^##\s+(.*?)\s*$/);
+    if (hm){
+      cur = { h: canonHeading(hm[1]), items: [] };
+      out.blocks.push(cur);
+      continue;
+    }
+    const tm = line.match(TASK_RE);
+    if (tm && cur){
+      cur.items.push({ k:"t", done: tm[2].toLowerCase() === "x", text: tm[3].trim() });
+      continue;
+    }
+    if (cur) cur.items.push({ k:"r", text: line });
+    else out.pre.push(line);
+  }
+  // guarantee every known section exists: the four, then any extras, then Done last
+  const ordered = [];
+  for (const s of SECTIONS){
+    ordered.push(out.blocks.find(x => x.h === s.h) || { h: s.h, items: [] });
+  }
+  for (const b of out.blocks) if (!ALL_H.includes(b.h)) ordered.push(b);
+  ordered.push(out.blocks.find(x => x.h === DONE_H) || { h: DONE_H, items: [] });
+  out.blocks = ordered;
+  if (!out.pre.some(l => l.trim())) out.pre = ["# Tasks",""];
+  return out;
+}
+
+function serialize(d){
+  const parts = [];
+  const pre = d.pre.slice();
+  while (pre.length && !pre[pre.length-1].trim()) pre.pop();
+  parts.push(...pre, "");
+  for (const b of d.blocks){
+    parts.push("## " + b.h);
+    const items = b.items.slice();
+    while (items.length && items[items.length-1].k === "r" && !items[items.length-1].text.trim()) items.pop();
+    for (const it of items){
+      parts.push(it.k === "t" ? `- [${it.done ? "x" : " "}] ${it.text}` : it.text);
+    }
+    parts.push("");
+  }
+  return parts.join("\n").replace(/\n{3,}/g,"\n\n").replace(/\s*$/,"") + "\n";
+}
+
+const blockOf = (d,h) => d.blocks.find(b => b.h === h) || (d.blocks.push({h,items:[]}), d.blocks[d.blocks.length-1]);
+const findTask = (b,text) => b.items.findIndex(i => i.k === "t" && i.text === text);
+
+/* ============================ ops ============================ */
+// { t:"add", sec, text } | { t:"del", sec, text }
+// { t:"edit", sec, text, newText } | { t:"move", from, to, text, newText, done }
+function applyOp(d, op){
+  if (op.t === "add"){
+    const b = blockOf(d, op.sec);
+    if (findTask(b, op.text) === -1) b.items.push({ k:"t", done:false, text:op.text });
+    return;
+  }
+  if (op.t === "del"){
+    const b = blockOf(d, op.sec), i = findTask(b, op.text);
+    if (i > -1) b.items.splice(i,1);
+    return;
+  }
+  if (op.t === "edit"){
+    const b = blockOf(d, op.sec), i = findTask(b, op.text);
+    if (i > -1) b.items[i].text = op.newText;
+    return;
+  }
+  if (op.t === "move"){
+    const from = blockOf(d, op.from);
+    let i = findTask(from, op.text), item;
+    if (i > -1) item = from.items.splice(i,1)[0];
+    else {
+      // it may already have landed in the target (retry); do nothing rather than duplicate
+      const tgt = blockOf(d, op.to);
+      if (findTask(tgt, op.newText != null ? op.newText : op.text) > -1) return;
+      item = { k:"t", done:false, text:op.text };
+    }
+    if (op.newText != null) item.text = op.newText;
+    if (op.done   != null) item.done = op.done;
+    const to = blockOf(d, op.to);
+    if (op.to === DONE_H) to.items.unshift(item); else to.items.push(item);
+  }
+}
+const applyAll = (d, ops) => { for (const o of ops) applyOp(d, o); return d; };
+const clone = d => JSON.parse(JSON.stringify(d));
+
+function push(op){
+  applyOp(doc, op);
+  queue.push(op); save(LS.queue, queue);
+  render(); scheduleFlush();
+}
+
+/* ============================ github ============================ */
+function b64encode(str){
+  const bytes = new TextEncoder().encode(str);
+  let bin = ""; for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
+function b64decode(b64){
+  const bin = atob(b64.replace(/\s/g,""));
+  const bytes = new Uint8Array(bin.length);
+  for (let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+const url = () => `${API}/repos/${encodeURIComponent(cfg.owner)}/${encodeURIComponent(cfg.repo)}/contents/${cfg.path.split("/").map(encodeURIComponent).join("/")}`;
+const headers = () => ({
+  "Authorization": "Bearer " + cfg.token,
+  "Accept": "application/vnd.github+json",
+  "X-GitHub-Api-Version": "2022-11-28",
+});
+
+const SKELETON = "# Tasks\n\n" + ALL_H.map(h => "## " + h + "\n").join("\n") + "\n";
+
+async function fetchFile(){
+  const r = await fetch(`${url()}?ref=${encodeURIComponent(cfg.branch)}&t=${Date.now()}`,
+                        { headers: headers(), cache:"no-store" });
+  if (r.status === 404) return { text: SKELETON, sha: null };
+  if (!r.ok) throw new Error(await errText(r));
+  const j = await r.json();
+  return { text: b64decode(j.content || ""), sha: j.sha };
+}
+
+async function putFile(text, curSha, msg){
+  const body = { message: msg, content: b64encode(text), branch: cfg.branch };
+  if (curSha) body.sha = curSha;
+  const r = await fetch(url(), { method:"PUT", headers: { ...headers(), "Content-Type":"application/json" }, body: JSON.stringify(body) });
+  if (!r.ok) { const e = new Error(await errText(r)); e.status = r.status; throw e; }
+  const j = await r.json();
+  return j.content.sha;
+}
+
+async function errText(r){
+  let m = "";
+  try { const j = await r.json(); m = j.message || ""; } catch(e){}
+  if (r.status === 401) return "GitHub rejected the token (401). Check it in settings.";
+  if (r.status === 403 && /rate limit/i.test(m)) return "GitHub rate limit hit. Try again shortly.";
+  if (r.status === 403) return "Token lacks permission on this repo (403). Needs Contents: Read and write.";
+  if (r.status === 404) return "Repo or path not found (404). Check owner, repo and path.";
+  return `GitHub error ${r.status}: ${m || "unknown"}`;
+}
+
+/* ============================ sync ============================ */
+function setStatus(text, cls){
+  const el = $("status");
+  el.textContent = text;
+  el.className = "chip" + (cls ? " " + cls : "");
+}
+
+function statusIdle(){
+  if (!navigator.onLine) return setStatus(queue.length ? `Offline · ${queue.length}` : "Offline", "warn");
+  if (queue.length)      return setStatus(`${queue.length} pending`, "warn");
+  setStatus("Synced", "ok");
+}
+
+async function refresh(){
+  if (busy) return;
+  busy = true; setStatus("Syncing…");
+  try {
+    const f = await fetchFile();
+    sha = f.sha;
+    doc = applyAll(parse(f.text), queue);
+    save(LS.cache, { text: f.text, sha: f.sha });
+    render(); statusIdle();
+    if (queue.length) scheduleFlush(0);
+  } catch(e){
+    setStatus("Error", "err");
+    console.error(e); toast(e.message, null);
+  } finally { busy = false; }
+}
+
+function scheduleFlush(delay){
+  clearTimeout(flushT);
+  flushT = setTimeout(flush, delay == null ? 900 : delay);
+}
+
+async function flush(){
+  if (busy || !queue.length) return;
+  if (!navigator.onLine) { statusIdle(); return; }
+  busy = true; setStatus("Syncing…");
+  const sending = queue.slice();
+  try {
+    let lastErr = null;
+    for (let attempt = 0; attempt < 3; attempt++){
+      const f = await fetchFile();
+      const merged = applyAll(parse(f.text), sending);
+      try {
+        sha = await putFile(serialize(merged), f.sha, `tasks: ${sending.length} change${sending.length>1?"s":""} from phone`);
+        queue = queue.slice(sending.length); save(LS.queue, queue);
+        doc = applyAll(merged, queue);
+        save(LS.cache, { text: serialize(doc), sha });
+        render(); statusIdle(); busy = false;
+        if (queue.length) scheduleFlush(300);
+        return;
+      } catch(e){
+        lastErr = e;
+        if (e.status === 409 || e.status === 422) { await new Promise(r => setTimeout(r, 350 * (attempt+1))); continue; }
+        throw e;
+      }
+    }
+    throw lastErr || new Error("Could not save after 3 tries.");
+  } catch(e){
+    console.error(e); setStatus("Not saved", "err"); toast(e.message, null);
+    busy = false; setTimeout(() => { if (queue.length) scheduleFlush(8000); }, 0);
+  }
+}
+
+/* ============================ render ============================ */
+function render(){
+  if (!doc) return;
+  const list = $("list");
+  const frag = document.createDocumentFragment();
+
+  for (const b of doc.blocks){
+    const h = b.h;
+    const tasks = b.items.filter(i => i.k === "t");
+    if (!tasks.length && !SECTIONS.some(s => s.h === h)) continue;
+
+    const sec = document.createElement("section");
+    sec.className = "sec";
+
+    const isOpen = !closed.has(h);
+    const head = document.createElement("button");
+    head.className = "sechead";
+    head.setAttribute("aria-expanded", String(isOpen));
+    head.innerHTML = `<span>${esc(h)}</span><span class="count">${tasks.length}</span><span class="caret">&#9660;</span>`;
+    head.onclick = () => {
+      if (closed.has(h)) closed.delete(h); else closed.add(h);
+      save(LS.closed, [...closed]); render();
+    };
+    sec.appendChild(head);
+
+    if (isOpen){
+      if (!tasks.length){
+        const p = document.createElement("div");
+        p.className = "empty";
+        p.textContent = h === "Today" ? "Nothing today." : "Empty.";
+        sec.appendChild(p);
+      } else {
+        const ul = document.createElement("ul");
+        ul.className = "tasks";
+        for (const t of tasks) ul.appendChild(taskEl(h, t));
+        sec.appendChild(ul);
+      }
+    }
+    frag.appendChild(sec);
+  }
+  list.replaceChildren(frag);
+}
+
+function taskEl(secH, t){
+  const li = document.createElement("li");
+  li.className = "task" + (t.done ? " done" : "");
+
+  const chk = document.createElement("button");
+  chk.className = "check";
+  chk.setAttribute("aria-label", t.done ? "Restore" : "Complete");
+  chk.innerHTML = `<span class="box">&#10003;</span>`;
+  chk.onclick = () => (secH === DONE_H ? restore(t.text) : complete(secH, t.text));
+
+  const ttl = document.createElement("button");
+  ttl.className = "ttl";
+  ttl.textContent = t.text;
+  ttl.onclick = () => openSheet(secH, t);
+
+  li.append(chk, ttl);
+  return li;
+}
+const esc = s => s.replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+/* ============================ actions ============================ */
+const stamp = () => new Date().toLocaleDateString("en-CA",{month:"short",day:"numeric"});
+
+function addTask(){
+  const inp = $("addInput");
+  const text = inp.value.trim();
+  if (!text) return;
+  push({ t:"add", sec: addSec, text });
+  inp.value = "";
+  if (closed.has(addSec)) { closed.delete(addSec); save(LS.closed,[...closed]); render(); }
+  inp.focus();
+}
+
+function complete(sec, text){
+  const newText = `${text} (done ${stamp()})`;
+  push({ t:"move", from:sec, to:DONE_H, text, newText, done:true });
+  toast("Done", { t:"move", from:DONE_H, to:sec, text:newText, newText:text, done:false });
+}
+
+function restore(text){
+  const bare = text.replace(/\s*\(done [^)]*\)\s*$/, "");
+  push({ t:"move", from:DONE_H, to:"Today", text, newText:bare, done:false });
+  toast("Moved to Today", { t:"move", from:"Today", to:DONE_H, text:bare, newText:text, done:true });
+}
+
+function moveTo(sec, text, to){
+  if (sec === to) return;
+  push({ t:"move", from:sec, to, text, done:false });
+  toast("Moved to " + to, { t:"move", from:to, to:sec, text, done:false });
+}
+
+function delTask(sec, text){
+  push({ t:"del", sec, text });
+  toast("Deleted", { t:"add", sec, text });
+}
+
+function editTask(sec, t){
+  const v = prompt("Edit task", t.text);
+  if (v == null) return;
+  const nv = v.trim();
+  if (!nv || nv === t.text) return;
+  push({ t:"edit", sec, text:t.text, newText:nv });
+  toast("Edited", { t:"edit", sec, text:nv, newText:t.text });
+}
+
+/* ============================ sheet ============================ */
+function openSheet(sec, t){
+  $("sheetTitle").textContent = t.text;
+  const rows = $("sheetRows");
+  rows.innerHTML = "";
+  const add = (icon, label, fn, cls) => {
+    const b = document.createElement("button");
+    b.className = "row" + (cls ? " " + cls : "");
+    b.innerHTML = `<span class="ic">${icon}</span><span>${esc(label)}</span>`;
+    b.onclick = () => { closeSheet(); setTimeout(fn, 120); };
+    rows.appendChild(b);
+  };
+  if (sec !== DONE_H){
+    for (const s of SECTIONS) if (s.h !== sec) add("&#8594;", "Move to " + s.h, () => moveTo(sec, t.text, s.h));
+    rows.appendChild(Object.assign(document.createElement("div"), { className:"sep" }));
+  }
+  add("&#9998;", "Edit", () => editTask(sec, t));
+  add("&#10005;", "Delete", () => delTask(sec, t.text), "danger");
+  $("scrim").classList.add("on"); $("sheet").classList.add("on");
+}
+function closeSheet(){ $("scrim").classList.remove("on"); $("sheet").classList.remove("on"); }
+
+/* ============================ snackbar ============================ */
+function toast(msg, inverse){
+  $("snackMsg").textContent = msg;
+  undoOp = inverse;
+  $("snackAct").classList.toggle("hidden", !inverse);
+  $("snack").classList.add("on");
+  clearTimeout(snackT);
+  snackT = setTimeout(() => $("snack").classList.remove("on"), inverse ? 5200 : 4200);
+}
+
+/* ============================ setup ============================ */
+function showSetup(existing){
+  $("app").classList.add("hidden");
+  $("setup").classList.remove("hidden");
+  $("setupErr").classList.add("hidden");
+  const c = existing || {};
+  $("cToken").value  = c.token  || "";
+  $("cOwner").value  = c.owner  || "";
+  $("cRepo").value   = c.repo   || "obsidian";
+  $("cPath").value   = c.path   || "001 Tasks.md";
+  $("cBranch").value = c.branch || "main";
+  $("cancelCfg").classList.toggle("hidden", !cfg);
+  $("forgetCfg").classList.toggle("hidden", !cfg);
+}
+function showApp(){ $("setup").classList.add("hidden"); $("app").classList.remove("hidden"); }
+
+async function saveCfg(){
+  const next = {
+    token:  $("cToken").value.trim(),
+    owner:  $("cOwner").value.trim(),
+    repo:   $("cRepo").value.trim(),
+    path:   $("cPath").value.trim().replace(/^\/+/,""),
+    branch: $("cBranch").value.trim() || "main",
+  };
+  for (const k of ["token","owner","repo","path"]){
+    if (!next[k]) { return setupErr("Please fill in every field."); }
+  }
+  const prev = cfg; cfg = next;
+  $("saveCfg").textContent = "Checking…";
+  try {
+    const f = await fetchFile();
+    if (f.sha === null) await putFile(SKELETON, null, "tasks: create task file");
+    save(LS.cfg, cfg);
+    showApp(); await refresh();
+  } catch(e){
+    cfg = prev; setupErr(e.message);
+  } finally { $("saveCfg").textContent = "Connect"; }
+}
+function setupErr(m){ const e = $("setupErr"); e.textContent = m; e.classList.remove("hidden"); }
+
+/* ============================ boot ============================ */
+function buildSegs(){
+  const wrap = $("segs"); wrap.innerHTML = "";
+  for (const s of SECTIONS){
+    const b = document.createElement("button");
+    b.className = "seg"; b.textContent = s.h;
+    b.setAttribute("aria-pressed", String(s.h === addSec));
+    b.onclick = () => { addSec = s.h; save(LS.seg, addSec); buildSegs(); $("addInput").focus(); };
+    wrap.appendChild(b);
+  }
+}
+
+$("addBtn").onclick = addTask;
+$("addInput").addEventListener("keydown", e => { if (e.key === "Enter"){ e.preventDefault(); addTask(); } });
+$("refreshBtn").onclick = () => refresh();
+$("settingsBtn").onclick = () => showSetup(cfg);
+$("saveCfg").onclick = saveCfg;
+$("cancelCfg").onclick = () => { showApp(); };
+$("forgetCfg").onclick = () => {
+  if (!confirm("Forget the token and settings on this device? Your tasks stay safe in GitHub.")) return;
+  localStorage.removeItem(LS.cfg); cfg = null; showSetup(null);
+};
+$("scrim").onclick = closeSheet;
+$("snackAct").onclick = () => { if (undoOp){ push(undoOp); undoOp = null; } $("snack").classList.remove("on"); };
+
+window.addEventListener("online",  () => { statusIdle(); if (queue.length) scheduleFlush(200); });
+window.addEventListener("offline", statusIdle);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+
+buildSegs();
+
+if (!cfg){
+  showSetup(null);
+} else {
+  showApp();
+  const cached = load(LS.cache, null);
+  if (cached){ sha = cached.sha; doc = applyAll(parse(cached.text), queue); render(); statusIdle(); }
+  refresh();
+  pollT = setInterval(() => { if (!document.hidden && !queue.length) refresh(); }, 90000);
+}
+
+// Android share sheet and home-screen shortcut land back here with params.
+const qs = new URLSearchParams(location.search);
+const shared = qs.get("share") || qs.get("url") || qs.get("title");
+if (shared && cfg){
+  history.replaceState({}, "", location.pathname);
+  $("addInput").value = shared.trim();
+  setTimeout(addTask, 500);
+} else if (qs.get("focus") && cfg){
+  history.replaceState({}, "", location.pathname);
+  setTimeout(() => $("addInput").focus(), 250);
+}
+
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
+</script>
+</body>
+</html>

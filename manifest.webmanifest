@@ -1,0 +1,29 @@
+{
+  "name": "Tasks",
+  "short_name": "Tasks",
+  "description": "Isaac's personal task list, synced to the Obsidian vault.",
+  "start_url": "./",
+  "scope": "./",
+  "id": "wu-tasks",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#006633",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "share_target": {
+    "action": "./",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "share",
+      "url": "url"
+    }
+  },
+  "shortcuts": [
+    { "name": "Add a task", "short_name": "Add", "url": "./?focus=1" }
+  ]
+}
