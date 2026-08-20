@@ -104,6 +104,17 @@ async function addVia(page, text){
   await page.click("#addBtn");
 }
 
+const IDEAS = "An existing idea\n";
+const LESSONS = "An existing lesson";
+const NOTE_CFG = { lessonsPath: "Lessons Learned.md", ideasPath: "WU Ideas.md" };
+
+// Until the tab bar exists, note ops are queued directly. Task 9 switches this
+// over to driving the real UI.
+async function addTo(page, tab, text){
+  if (tab === "tasks"){ await page.fill("#addInput", text); return page.click("#addBtn"); }
+  await page.evaluate(([f, t]) => window.push({ t:"note", file:f, text:t }), [tab, text]);
+}
+
 const TESTS = [];
 const test = (name, fn) => TESTS.push({ name, fn });
 
@@ -145,6 +156,68 @@ test("tasks added while offline queue up and flush on reconnect", async () => {
     assert.ok(files["001 Tasks.md"].includes("- [ ] Offline one"), "queued task never flushed");
     assert.ok(files["001 Tasks.md"].includes("- [ ] Offline two"), "second queued task never flushed");
   });
+});
+
+
+test("an idea lands in WU Ideas.md, newest first, and never touches the task file", async () => {
+  const files = { "001 Tasks.md": BASE, "WU Ideas.md": IDEAS, "Lessons Learned.md": LESSONS };
+  await withApp(files, async page => {
+    await addTo(page, "ideas", "Fall colour bus day trip");
+    await until(() => files["WU Ideas.md"].includes("Fall colour"), "the idea to reach its note");
+    assert.strictEqual(files["WU Ideas.md"], "Fall colour bus day trip\n\nAn existing idea\n");
+    assert.strictEqual(files["001 Tasks.md"], BASE, "the task file was rewritten");
+  }, { cfg: NOTE_CFG });
+});
+
+test("one file failing does not drop another file's ops", async () => {
+  const files = { "001 Tasks.md": BASE, "WU Ideas.md": IDEAS, "Lessons Learned.md": LESSONS };
+  await withApp(files, async page => {
+    // Break only the Ideas file. Tasks must still commit, and the idea must
+    // stay queued rather than being silently discarded with the batch.
+    await page.route("https://api.github.com/**", async route => {
+      if (route.request().method() === "PUT" &&
+          decodeURIComponent(route.request().url()).includes("WU Ideas.md")){
+        return route.fulfill({ status: 409, contentType: "application/json",
+                               body: JSON.stringify({ message: "always conflicts" }) });
+      }
+      return route.fallback();
+    });
+
+    await addTo(page, "ideas", "Doomed idea");
+    await addTo(page, "tasks", "Book the campsite deposit");
+    await until(() => files["001 Tasks.md"].includes("campsite deposit"), "the healthy file to commit");
+
+    assert.strictEqual(files["WU Ideas.md"], IDEAS, "the broken file was written anyway");
+    const queued = await page.evaluate(() => JSON.parse(localStorage.getItem("tasks.queue") || "[]"));
+    assert.strictEqual(queued.length, 1, "expected exactly the failed op to remain queued, got " + JSON.stringify(queued));
+    assert.strictEqual(queued[0].text, "Doomed idea");
+  }, { cfg: NOTE_CFG });
+});
+
+test("a note file that does not exist yet is created with just the entry", async () => {
+  const files = { "001 Tasks.md": BASE };
+  await withApp(files, async page => {
+    await addTo(page, "lessons", "Fuel the bus the night before");
+    await until(() => files["Lessons Learned.md"] !== undefined, "the note file to be created");
+    assert.strictEqual(files["Lessons Learned.md"], "Fuel the bus the night before\n");
+  }, { cfg: NOTE_CFG });
+});
+
+test("entries queued offline across three files all flush on reconnect", async () => {
+  const files = { "001 Tasks.md": BASE, "WU Ideas.md": IDEAS, "Lessons Learned.md": LESSONS };
+  await withApp(files, async page => {
+    await page.context().setOffline(true);
+    await page.evaluate(() => window.dispatchEvent(new Event("offline")));
+    await addTo(page, "ideas", "Offline idea");
+    await addTo(page, "lessons", "Offline lesson");
+    await addTo(page, "tasks", "Offline task");
+    await page.waitForTimeout(1200);
+    await page.context().setOffline(false);
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await until(() => files["001 Tasks.md"].includes("Offline task"), "the task file to flush");
+    await until(() => files["WU Ideas.md"].startsWith("Offline idea"), "the ideas file to flush");
+    await until(() => files["Lessons Learned.md"].startsWith("Offline lesson"), "the lessons file to flush");
+  }, { cfg: NOTE_CFG });
 });
 
 (async () => {

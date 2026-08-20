@@ -488,35 +488,77 @@ function scheduleFlush(delay){
   flushT = setTimeout(flush, delay == null ? 900 : delay);
 }
 
+// Ops are grouped by file and each file gets its own fetch, replay, PUT and
+// retry. Sequential, not concurrent: three parallel writes to one repo would
+// generate 409s against each other for no reason.
 async function flush(){
   if (busy || !queue.length) return;
   if (!navigator.onLine) { statusIdle(); return; }
   busy = true; setStatus("Syncing…");
+
   const sending = queue.slice();
-  try {
-    let lastErr = null;
-    for (let attempt = 0; attempt < 3; attempt++){
-      const f = await fetchFile("tasks");
-      const merged = applyAll(parse(f.text), sending);
-      try {
-        shas.tasks = await putFile("tasks", serialize(merged), f.sha, `tasks: ${sending.length} change${sending.length>1?"s":""} from phone`);
-        queue = queue.slice(sending.length); save(LS.queue, queue);
-        doc = applyAll(merged, queue);
-        save(LS.cache, { text: serialize(doc), sha: shas.tasks });
-        render(); statusIdle(); busy = false;
-        if (queue.length) scheduleFlush(300);
-        return;
-      } catch(e){
-        lastErr = e;
-        if (e.status === 409 || e.status === 422) { await new Promise(r => setTimeout(r, 350 * (attempt+1))); continue; }
-        throw e;
-      }
-    }
-    throw lastErr || new Error("Could not save after 3 tries.");
-  } catch(e){
-    console.error(e); setStatus("Not saved", "err"); toast(e.message, null);
-    busy = false; setTimeout(() => { if (queue.length) scheduleFlush(8000); }, 0);
+  const groups = new Map();
+  for (const op of sending){
+    const id = fileOf(op);
+    if (!groups.has(id)) groups.set(id, []);
+    groups.get(id).push(op);
   }
+
+  const succeeded = new Set();
+  let lastErr = null;
+  for (const [id, ops] of groups){
+    try {
+      const text = await flushFile(id, ops);
+      for (const op of ops) succeeded.add(op);
+      if (id === "tasks") save(LS.cache, { text, sha: shas.tasks });
+      else { noteCache[id] = parseNote(text); save(LS.noteCache(id), { text, sha: shas[id] }); }
+    } catch(e){ lastErr = e; }
+  }
+
+  // Removal by identity, not by count. Once grouped by file the ops that
+  // succeeded are no longer a contiguous prefix of the queue.
+  queue = queue.filter(op => !succeeded.has(op));
+  save(LS.queue, queue);
+  busy = false;
+
+  const cached = load(LS.cache, null);
+  if (cached) doc = applyAll(parse(cached.text), queue.filter(op => fileOf(op) === "tasks"));
+  render();
+
+  if (lastErr){
+    console.error(lastErr);
+    setStatus("Not saved", "err"); toast(lastErr.message, null);
+    setTimeout(() => { if (queue.length) scheduleFlush(8000); }, 0);
+    return;
+  }
+  statusIdle();
+  if (queue.length) scheduleFlush(300);
+}
+
+async function flushFile(id, ops){
+  let lastErr = null;
+  for (let attempt = 0; attempt < 3; attempt++){
+    const f = await fetchFile(id);
+    const text = id === "tasks"
+      ? serialize(applyAll(parse(f.text), ops))
+      : serializeNote(applyAllNotes(parseNote(f.text), ops));
+    try {
+      shas[id] = await putFile(id, text, f.sha, commitMsg(id, ops.length));
+      return text;
+    } catch(e){
+      lastErr = e;
+      if (e.status === 409 || e.status === 422){
+        await new Promise(r => setTimeout(r, 350 * (attempt + 1)));
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr || new Error(`Could not save ${FILES[id].label} after 3 tries.`);
+}
+
+function commitMsg(id, n){
+  return `${FILES[id].label.toLowerCase()}: ${n > 1 ? n + " changes" : "1 change"} from phone`;
 }
 
 /* ============================ render ============================ */
@@ -757,6 +799,10 @@ if (shared && cfg){
   history.replaceState({}, "", location.pathname);
   setTimeout(() => $("addInput").focus(), 250);
 }
+
+// Exposed so test/e2e.js can queue an op directly, which lets the sync layer be
+// tested independently of the UI. Harmless in the browser.
+window.push = push;
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
 </script>
