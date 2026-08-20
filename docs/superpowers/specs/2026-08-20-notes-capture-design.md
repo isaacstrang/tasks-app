@@ -29,13 +29,13 @@ Neither note has headings, frontmatter, or list syntax. Entries are plain
 paragraphs separated by a single blank line.
 
 ```
-Lessons Learned.md (verified 20 Aug 2026)
+lessons.md (synthetic fixture)
 01| First lesson about a policy that did not work out...
 02|
 03| Second lesson about logistics, where fewer of a thing...
      (no trailing newline)
 
-WU Ideas.md (verified 20 Aug 2026)
+ideas.md (synthetic fixture)
 01| Sponsor local meetups. Cover the monthly dues for adjacent...[[some-linked-note]]
      (ends with a newline)
 ```

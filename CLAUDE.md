@@ -29,6 +29,8 @@ Run `npm test` before you hand anything back. Not "if the change looks risky".
   Phone (this app) ──HTTPS──► GitHub Contents API
                                  isaacstrang/obsidian
                                    001 Tasks.md
+                                   WU Ideas.md
+                                   Lessons Learned.md
                                     │        ▲
                        auto pull    │        │  auto commit + push
                         (2 min)     ▼        │  (5 min)
@@ -63,7 +65,9 @@ manifest.webmanifest      PWA install, Android share target, home-screen shortcu
 icon-*.png                generated, 192 / 512 / 512-maskable
 test/model.js             extracts the pure model out of index.html
 test/model.test.js        parse, serialize and op tests, plain node
-test/e2e.js               Playwright against a fake in-memory GitHub
+test/e2e.js               Playwright against a fake in-memory GitHub, plus shots
+test/fixtures/            synthetic note files, structurally like the real ones
+CHANGELOG.md              one entry per released version
 ```
 
 `index.html` is one file on purpose. No bundler, no framework, no npm at
@@ -143,6 +147,33 @@ New tasks default to **This week**, not Today. Today is reserved for what Isaac
 has actually committed to today, and defaulting to it makes the section
 meaningless. The `personal-tasks` skill uses the same default; keep them in step.
 
+## The note contract
+
+`WU Ideas.md` and `Lessons Learned.md` are **not** in the Tasks format.
+
+- No headings, no frontmatter, no list syntax.
+- One entry per paragraph, separated by a single blank line. **That blank line
+  is the record separator**, the exact inverse of what a blank line means in
+  `001 Tasks.md`. Removing it merges two entries into one.
+- Nothing is parsed inside a paragraph, so wikilinks, punctuation and accented
+  characters pass straight through.
+- Entries are single paragraphs by contract. A pasted multi-line entry is
+  flattened by `flattenEntry` rather than silently becoming two entries on the
+  next read.
+- The app never creates structure in these files. If one grows headings by
+  hand, they become ordinary entry text and are preserved verbatim.
+- New entries go on **top**, newest first. No date stamps.
+
+The app is capture plus read only here. It cannot edit, delete or reorder an
+entry, and that is deliberate: these notes have no lifecycle, so the task
+machinery would earn nothing and would triple the surface area that can corrupt
+a vault file.
+
+Fixtures in `test/fixtures/` are **synthetic**. They reproduce the structural
+properties of the real notes, a missing trailing newline on one and an inline
+wikilink on the other, without putting Isaac's actual content into this repo,
+which is public.
+
 ## The sync model
 
 Naive read-modify-write loses data here, because the Mac pushes on its own
@@ -152,18 +183,34 @@ Every user action pushes a small, replayable op onto `queue`, applies it
 optimistically to the in-memory doc, and schedules a debounced flush:
 
 ```js
-{ t:"add",  sec, text }
-{ t:"del",  sec, text }
-{ t:"edit", sec, text, newText }
-{ t:"move", from, to, text, newText?, done? }
+{ t:"add",  file:"tasks", sec, text }
+{ t:"del",  file:"tasks", sec, text }
+{ t:"edit", file:"tasks", sec, text, newText }
+{ t:"move", file:"tasks", from, to, text, newText?, done? }
+{ t:"note", file:"lessons"|"ideas", text }
 ```
 
-`flush()` then, for up to three attempts:
+`flush()` groups the pending ops **by file**, then runs `flushFile` once per
+file, sequentially. Sequential and not concurrent on purpose: three parallel
+writes to one repo would generate 409s against each other for no reason.
 
-1. **Re-fetches** the file from GitHub, getting the current content and sha.
-2. **Replays** the pending ops onto that fresh content with `applyAll`.
+`flushFile(id, ops)` then, for up to three attempts:
+
+1. **Re-fetches** that file from GitHub, getting the current content and sha.
+2. **Replays** that file's pending ops onto the fresh content, with `applyAll`
+   for Tasks or `applyAllNotes` for a note.
 3. `PUT`s the result with that sha. A 409 or 422 means someone else wrote in
    between, so it loops and replays onto the newer version.
+
+Two rules in `flush()` that are easy to break and expensive to break:
+
+- **Queue removal is by identity, never by count.** The old `queue.slice(n)` was
+  correct only while the sent ops were a contiguous prefix. Grouped by file they
+  are not.
+- **One file failing must never drop another file's ops.** Each file's ops leave
+  the queue only when that file's `PUT` succeeds. The previous code abandoned
+  the whole batch on a single throw, which is data loss once there is more than
+  one file. There is an e2e test pinning this.
 
 The queue persists to `localStorage`, so a task added on the subway survives
 being killed by Android and pushes when signal returns.

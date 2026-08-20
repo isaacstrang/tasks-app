@@ -1,7 +1,7 @@
 {
   "name": "Tasks",
   "short_name": "Tasks",
-  "description": "Isaac's personal task list, synced to the Obsidian vault.",
+  "description": "Isaac's tasks, lessons and ideas, synced to the Obsidian vault.",
   "start_url": "./",
   "scope": "./",
   "id": "wu-tasks",
