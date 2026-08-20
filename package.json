@@ -1,0 +1,16 @@
+{
+  "name": "tasks-app",
+  "version": "1.0.1",
+  "private": true,
+  "description": "Phone front end for one Markdown file in an Obsidian vault",
+  "scripts": {
+    "test": "npm run test:model && npm run test:e2e",
+    "test:model": "node --test test/model.test.js",
+    "test:e2e": "node test/e2e.js",
+    "shots": "SHOTS=1 node test/e2e.js",
+    "serve": "python3 -m http.server 8081"
+  },
+  "devDependencies": {
+    "playwright": "^1.47.0"
+  }
+}

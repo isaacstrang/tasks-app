@@ -195,6 +195,10 @@ a{color:var(--green)}
 "use strict";
 
 /* ============================ config ============================ */
+/* ===== MODEL START ===== */
+// Pure, DOM-free, browser-free. test/model.js extracts exactly this region
+// and runs it in node, so nothing in here may touch document, localStorage
+// or fetch.
 const SECTIONS = [
   { id:"today", h:"Today"       },
   { id:"week",  h:"This week"   },
@@ -212,23 +216,6 @@ const ALIASES = {
   "this week":"This week", "today":"Today", "done":"Done",
 };
 const canonHeading = t => ALIASES[t.trim().toLowerCase()] || t.trim();
-
-const LS = { cfg:"tasks.cfg", queue:"tasks.queue", cache:"tasks.cache", seg:"tasks.seg", closed:"tasks.closed" };
-const API = "https://api.github.com";
-
-/* ============================ state ============================ */
-let cfg    = load(LS.cfg, null);
-let queue  = load(LS.queue, []);
-let doc    = null;          // { pre:[], blocks:[{h,items:[]}] }
-let sha    = null;
-let closed = new Set(load(LS.closed, [DONE_H]));
-let addSec = load(LS.seg, "This week");   // matches the vault default; tap a chip to change it
-let flushT = null, pollT = null, snackT = null, undoOp = null, busy = false;
-
-function load(k, d){ try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e){ return d; } }
-function save(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
-
-const $ = id => document.getElementById(id);
 
 /* ============================ markdown ============================ */
 const TASK_RE = /^(\s*)[-*]\s+\[([ xX])\]\s?(.*)$/;
@@ -321,6 +308,24 @@ function applyOp(d, op){
 }
 const applyAll = (d, ops) => { for (const o of ops) applyOp(d, o); return d; };
 const clone = d => JSON.parse(JSON.stringify(d));
+/* ===== MODEL END ===== */
+
+const LS = { cfg:"tasks.cfg", queue:"tasks.queue", cache:"tasks.cache", seg:"tasks.seg", closed:"tasks.closed" };
+const API = "https://api.github.com";
+
+/* ============================ state ============================ */
+let cfg    = load(LS.cfg, null);
+let queue  = load(LS.queue, []);
+let doc    = null;          // { pre:[], blocks:[{h,items:[]}] }
+let sha    = null;
+let closed = new Set(load(LS.closed, [DONE_H]));
+let addSec = load(LS.seg, "This week");   // matches the vault default; tap a chip to change it
+let flushT = null, pollT = null, snackT = null, undoOp = null, busy = false;
+
+function load(k, d){ try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e){ return d; } }
+function save(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
+
+const $ = id => document.getElementById(id);
 
 function push(op){
   applyOp(doc, op);
