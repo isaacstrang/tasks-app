@@ -108,11 +108,10 @@ const IDEAS = "An existing idea\n";
 const LESSONS = "An existing lesson";
 const NOTE_CFG = { lessonsPath: "Lessons Learned.md", ideasPath: "WU Ideas.md" };
 
-// Until the tab bar exists, note ops are queued directly. Task 9 switches this
-// over to driving the real UI.
 async function addTo(page, tab, text){
-  if (tab === "tasks"){ await page.fill("#addInput", text); return page.click("#addBtn"); }
-  await page.evaluate(([f, t]) => window.push({ t:"note", file:f, text:t }), [tab, text]);
+  await page.click(`[data-tab="${tab}"]`);
+  await page.fill("#addInput", text);
+  await page.click("#addBtn");
 }
 
 const TESTS = [];
@@ -220,7 +219,64 @@ test("entries queued offline across three files all flush on reconnect", async (
   }, { cfg: NOTE_CFG });
 });
 
+test("opening a note tab shows what is already in the file", async () => {
+  const files = { "001 Tasks.md": BASE, "WU Ideas.md": IDEAS, "Lessons Learned.md": LESSONS };
+  await withApp(files, async page => {
+    await page.click('[data-tab="lessons"]');
+    await page.waitForSelector(".entry");
+    const texts = await page.$$eval(".entry", els => els.map(e => e.textContent));
+    assert.deepStrictEqual(texts, ["An existing lesson"]);
+  }, { cfg: NOTE_CFG });
+});
+
+test("boot fetches only the task file, and a note is fetched when its tab opens", async () => {
+  const files = { "001 Tasks.md": BASE, "WU Ideas.md": IDEAS, "Lessons Learned.md": LESSONS };
+  const asked = [];
+  await withApp(files, async page => {
+    await page.waitForTimeout(900);
+    assert.deepStrictEqual([...new Set(asked)], ["001 Tasks.md"],
+                           "boot fetched more than the task file: " + [...new Set(asked)].join(", "));
+    await page.click('[data-tab="ideas"]');
+    await page.waitForSelector(".entry");
+    assert.ok(asked.includes("WU Ideas.md"), "opening the tab did not fetch the note");
+  }, { cfg: NOTE_CFG, onGet: p => asked.push(p) });
+});
+
+test("a note tab shows an unflushed entry immediately, marked pending", async () => {
+  const files = { "001 Tasks.md": BASE, "WU Ideas.md": IDEAS, "Lessons Learned.md": LESSONS };
+  await withApp(files, async page => {
+    await page.context().setOffline(true);
+    await page.evaluate(() => window.dispatchEvent(new Event("offline")));
+    await addTo(page, "ideas", "An idea with no signal");
+    await page.waitForSelector(".entry.pending");
+    const texts = await page.$$eval(".entry", els => els.map(e => e.textContent));
+    assert.deepStrictEqual(texts, ["An idea with no signal", "An existing idea"]);
+  }, { cfg: NOTE_CFG });
+});
+
+// npm run shots: light and dark screenshots of each tab, for eyeballing a CSS
+// change without a phone in your hand.
+async function shots(){
+  const dir = path.join(__dirname, "shots");
+  fs.mkdirSync(dir, { recursive: true });
+  for (const scheme of ["light", "dark"]){
+    const files = { "001 Tasks.md": BASE, "WU Ideas.md": IDEAS, "Lessons Learned.md": LESSONS };
+    await withApp(files, async page => {
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.setViewportSize({ width: 390, height: 844 });
+      for (const t of ["tasks", "lessons", "ideas"]){
+        await page.click(`[data-tab="${t}"]`);
+        await page.waitForTimeout(400);
+        await page.screenshot({ path: path.join(dir, `${t}-${scheme}.png`) });
+      }
+    }, { cfg: NOTE_CFG });
+    console.log("  wrote " + scheme + " shots");
+  }
+  console.log("\nscreenshots in test/shots/");
+}
+
 (async () => {
+  if (process.env.SHOTS) return shots();
   let failed = 0;
   for (const t of TESTS){
     try { await t.fn(); console.log("  ok   " + t.name); }

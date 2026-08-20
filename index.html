@@ -67,6 +67,27 @@ header{
 }
 .seg[aria-pressed="true"]{background:var(--green);color:#fff}
 
+/* ---------- tabs ---------- */
+.tabs{display:flex;margin:9px -14px -8px;border-top:1px solid var(--line)}
+.tab{
+  flex:1;min-height:46px;padding:0 4px;font-size:14px;color:var(--muted);
+  background:none;border-bottom:2px solid transparent
+}
+.tab[aria-selected="true"]{color:var(--green);font-weight:700;border-bottom-color:var(--green)}
+/* Green on the dark panel fails contrast, so the selected tab goes yellow. */
+@media (prefers-color-scheme:dark){
+  .tab[aria-selected="true"]{color:var(--yellow);border-bottom-color:var(--yellow)}
+}
+
+/* ---------- note entries ---------- */
+#noteList{padding:10px 12px calc(120px + var(--safe-b))}
+.entry{
+  background:var(--card);border:1px solid var(--line);border-radius:14px;
+  box-shadow:var(--shadow);padding:11px 13px;margin-bottom:8px;
+  font-size:15px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere
+}
+.entry.pending{opacity:.55}
+
 /* ---------- list ---------- */
 main{padding:6px 12px calc(120px + var(--safe-b))}
 section.sec{margin-top:14px}
@@ -160,8 +181,14 @@ a{color:var(--green)}
       <button class="addbtn" id="addBtn" aria-label="Add">+</button>
     </div>
     <div class="segs" id="segs"></div>
+    <div class="tabs" id="tabs">
+      <button class="tab" data-tab="tasks" aria-selected="true">Tasks</button>
+      <button class="tab" data-tab="lessons" aria-selected="false">Lessons</button>
+      <button class="tab" data-tab="ideas" aria-selected="false">Ideas</button>
+    </div>
   </header>
   <main id="list"></main>
+  <main id="noteList" class="hidden"></main>
 </div>
 
 <div id="setup" class="setup hidden">
@@ -400,9 +427,10 @@ const pathOf = id => cfg[FILES[id].cfgKey];
 const blankFor = id => id === "tasks" ? SKELETON : "";
 
 function push(op){
-  applyOp(doc, op);
+  if (fileOf(op) === "tasks") applyOp(doc, op);
   queue.push(op); save(LS.queue, queue);
-  render(); scheduleFlush();
+  if (tab === "tasks") render(); else renderNote(tab);
+  scheduleFlush();
 }
 
 /* ============================ github ============================ */
@@ -631,9 +659,13 @@ function addTask(){
   const inp = $("addInput");
   const text = inp.value.trim();
   if (!text) return;
-  push({ t:"add", sec: addSec, text });
+  if (tab === "tasks"){
+    if (closed.has(addSec)) { closed.delete(addSec); save(LS.closed,[...closed]); }
+    push({ t:"add", file:"tasks", sec: addSec, text });
+  } else {
+    push({ t:"note", file: tab, text });
+  }
   inp.value = "";
-  if (closed.has(addSec)) { closed.delete(addSec); save(LS.closed,[...closed]); render(); }
   inp.focus();
 }
 
@@ -746,6 +778,84 @@ async function saveCfg(){
 function setupErr(m){ const e = $("setupErr"); e.textContent = m; e.classList.remove("hidden"); }
 
 /* ============================ boot ============================ */
+let tab = load(LS.tab, "tasks");
+
+function switchTab(id){
+  tab = id; save(LS.tab, id);
+  for (const b of document.querySelectorAll(".tab")) b.setAttribute("aria-selected", String(b.dataset.tab === id));
+  $("segs").classList.toggle("hidden", id !== "tasks");
+  $("list").classList.toggle("hidden", id !== "tasks");
+  $("noteList").classList.toggle("hidden", id === "tasks");
+  $("addInput").placeholder = id === "tasks" ? "Add a task"
+    : id === "lessons" ? "What did you learn?" : "Add an idea";
+  document.querySelector("header h1").textContent = FILES[id].label;
+  if (id === "tasks") render(); else { renderNote(id); loadNote(id); }
+}
+
+// A note file is fetched the first time its tab is opened, never at boot, so
+// the cold-open path stays exactly as fast as it was.
+async function loadNote(id){
+  const cached = load(LS.noteCache(id), null);
+  if (noteCache[id] === null && cached){
+    shas[id] = cached.sha; noteCache[id] = parseNote(cached.text); renderNote(id);
+  }
+  try {
+    const f = await fetchFile(id);
+    shas[id] = f.sha;
+    noteCache[id] = parseNote(f.text);
+    save(LS.noteCache(id), { text: f.text, sha: f.sha });
+    renderNote(id);
+  } catch(e){
+    console.error(e);
+    if (noteCache[id] === null) renderNoteError(id, e.message);
+  }
+}
+
+function renderNote(id){
+  if (tab !== id) return;
+  const el = $("noteList");
+  const pending = queue.filter(op => op.t === "note" && op.file === id).map(op => flattenEntry(op.text));
+  const saved = noteCache[id];
+
+  if (saved === null && !pending.length){
+    el.replaceChildren(Object.assign(document.createElement("div"),
+                                     { className:"empty", textContent:"Loading…" }));
+    return;
+  }
+
+  // A pending entry that has already landed in the fetched file must not show
+  // twice, so dedupe across the two lists and mark anything not yet in the
+  // saved list as still in flight.
+  const seen = new Set();
+  const rows = [];
+  for (const text of pending.concat(saved || [])){
+    if (seen.has(text)) continue;
+    seen.add(text);
+    rows.push({ text, pending: !(saved || []).includes(text) });
+  }
+
+  if (!rows.length){
+    el.replaceChildren(Object.assign(document.createElement("div"),
+                                     { className:"empty", textContent:"Nothing here yet." }));
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  for (const r of rows){
+    const d = document.createElement("div");
+    d.className = "entry" + (r.pending ? " pending" : "");
+    d.textContent = r.text;
+    frag.appendChild(d);
+  }
+  el.replaceChildren(frag);
+}
+
+function renderNoteError(id, msg){
+  const d = document.createElement("div");
+  d.className = "empty";
+  d.textContent = `Could not load ${FILES[id].label}. ${msg}`;
+  $("noteList").replaceChildren(d);
+}
+
 function buildSegs(){
   const wrap = $("segs"); wrap.innerHTML = "";
   for (const s of SECTIONS){
@@ -757,6 +867,7 @@ function buildSegs(){
   }
 }
 
+for (const b of document.querySelectorAll(".tab")) b.onclick = () => switchTab(b.dataset.tab);
 $("addBtn").onclick = addTask;
 $("addInput").addEventListener("keydown", e => { if (e.key === "Enter"){ e.preventDefault(); addTask(); } });
 $("refreshBtn").onclick = () => refresh();
@@ -772,7 +883,7 @@ $("snackAct").onclick = () => { if (undoOp){ push(undoOp); undoOp = null; } $("s
 
 window.addEventListener("online",  () => { statusIdle(); if (queue.length) scheduleFlush(200); });
 window.addEventListener("offline", statusIdle);
-document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+document.addEventListener("visibilitychange", () => { if (!document.hidden && tab === "tasks") refresh(); });
 
 buildSegs();
 
@@ -785,7 +896,8 @@ if (!cfg){
                doc = applyAll(parse(cached.text), queue.filter(op => fileOf(op) === "tasks"));
                render(); statusIdle(); }
   refresh();
-  pollT = setInterval(() => { if (!document.hidden && !queue.length) refresh(); }, 90000);
+  switchTab(tab);
+  pollT = setInterval(() => { if (!document.hidden && !queue.length && tab === "tasks") refresh(); }, 90000);
 }
 
 // Android share sheet and home-screen shortcut land back here with params.
