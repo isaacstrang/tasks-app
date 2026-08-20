@@ -271,13 +271,39 @@ function serialize(d){
 const blockOf = (d,h) => d.blocks.find(b => b.h === h) || (d.blocks.push({h,items:[]}), d.blocks[d.blocks.length-1]);
 const findTask = (b,text) => b.items.findIndex(i => i.k === "t" && i.text === text);
 
+// A parsed block carries the blank line after its heading, and the blank line
+// before the next heading, as real items. A plain items.push lands a task after
+// that trailing blank, which turns a tight list into a loose one in Obsidian's
+// reading view and spaces the tasks apart. Both helpers anchor on the tasks
+// themselves rather than counting blanks, so a section keeps the blank line
+// under its heading whether or not it already has tasks in it.
+function appendTask(b, item){
+  let last = -1;
+  for (let i = 0; i < b.items.length; i++) if (b.items[i].k === "t") last = i;
+  if (last > -1) { b.items.splice(last + 1, 0, item); return; }
+  b.items.splice(afterLeadingBlanks(b), 0, item);
+}
+function prependTask(b, item){
+  const first = b.items.findIndex(i => i.k === "t");
+  b.items.splice(first > -1 ? first : afterLeadingBlanks(b), 0, item);
+}
+// A section that parse synthesised, because the file did not contain its
+// heading, has no items at all. Give it the blank line under the heading that
+// every other section has, so the file stays consistent to read.
+function afterLeadingBlanks(b){
+  if (!b.items.length) b.items.push({ k:"r", text:"" });
+  let i = 0;
+  while (i < b.items.length && b.items[i].k === "r" && !b.items[i].text.trim()) i++;
+  return i;
+}
+
 /* ============================ ops ============================ */
 // { t:"add", sec, text } | { t:"del", sec, text }
 // { t:"edit", sec, text, newText } | { t:"move", from, to, text, newText, done }
 function applyOp(d, op){
   if (op.t === "add"){
     const b = blockOf(d, op.sec);
-    if (findTask(b, op.text) === -1) b.items.push({ k:"t", done:false, text:op.text });
+    if (findTask(b, op.text) === -1) appendTask(b, { k:"t", done:false, text:op.text });
     return;
   }
   if (op.t === "del"){
@@ -303,7 +329,7 @@ function applyOp(d, op){
     if (op.newText != null) item.text = op.newText;
     if (op.done   != null) item.done = op.done;
     const to = blockOf(d, op.to);
-    if (op.to === DONE_H) to.items.unshift(item); else to.items.push(item);
+    if (op.to === DONE_H) prependTask(to, item); else appendTask(to, item);
   }
 }
 const applyAll = (d, ops) => { for (const o of ops) applyOp(d, o); return d; };

@@ -140,3 +140,41 @@ test("move between two open sections keeps the task unchecked", () => {
   const out = run(BASE, [{ t: "move", from: "Today", to: "Ice box", text: "Call the outfitter", done: false }]);
   assert.ok(tasksIn(out, "Ice box").includes("- [ ] Call the outfitter"));
 });
+
+test("add lands directly after the last task, not after the section's blank line", () => {
+  const out = run(BASE, [{ t: "add", sec: "Today", text: "Brand new task" }]);
+  assert.match(out, /- \[ \] Call the outfitter\n- \[ \] Brand new task/);
+  assert.ok(!/- \[ \] Call the outfitter\n\n- \[ \] Brand new task/.test(out));
+});
+
+test("add into an empty section does not leave a blank line above the task", () => {
+  const out = run(BASE, [{ t: "add", sec: "Ice box", text: "Schools deck" }]);
+  assert.match(out, /## Ice box\n\n- \[ \] Schools deck/);
+});
+
+test("move into an open section appends tightly", () => {
+  const out = run(BASE, [
+    { t: "add", sec: "This week", text: "First" },
+    { t: "move", from: "This week", to: "Today", text: "First", done: false },
+  ]);
+  assert.match(out, /- \[ \] Call the outfitter\n- \[ \] First/);
+});
+
+test("move to Done prepends tightly under the heading", () => {
+  const out = run(BASE, [{
+    t: "move", from: "Today", to: "Done",
+    text: "Call the outfitter", newText: "Call the outfitter (done Aug 20)", done: true,
+  }]);
+  assert.match(out, /## Done\n\n- \[x\] Call the outfitter \(done Aug 20\)/);
+});
+
+test("a section's trailing blank line is preserved, so headings stay separated", () => {
+  const out = run(BASE, [{ t: "add", sec: "Today", text: "Brand new task" }]);
+  assert.match(out, /- \[ \] Brand new task\n\n## This week/);
+});
+
+test("a section missing from the file still gets a blank line under its heading", () => {
+  const src = "# Tasks\n\n## Today\n\n- [ ] Call the outfitter\n";
+  const out = run(src, [{ t: "add", sec: "Ice box", text: "Schools deck" }]);
+  assert.match(out, /## Ice box\n\n- \[ \] Schools deck/);
+});

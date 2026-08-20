@@ -13,7 +13,7 @@ if (!m) throw new Error("MODEL START / MODEL END markers not found in index.html
 const EXPORTS = [
   "SECTIONS", "DONE_H", "ALL_H", "ALIASES", "canonHeading",
   "TASK_RE", "parse", "serialize", "blockOf", "findTask",
-  "applyOp", "applyAll", "clone",
+  "appendTask", "prependTask", "applyOp", "applyAll", "clone",
 ];
 
 module.exports = new Function(
