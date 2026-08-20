@@ -87,10 +87,13 @@ breaking the extraction fails loudly rather than subtly.
 git clone https://github.com/isaacstrang/tasks-app.git
 cd tasks-app
 npm install          # playwright only, and only for the e2e run
+npx playwright install chromium   # once per machine
 npm test
 ```
 
 That is the whole setup. Nothing to build, nothing to configure, no env file.
+The model tests use node's built-in test runner and need no dependencies at
+all, so `npm run test:model` works on a bare clone.
 
 The edit loop is: change `index.html`, run `npm test`, bump `CACHE` in `sw.js`,
 commit, push. GitHub Pages redeploys off `main` in about a minute. There is no
@@ -102,9 +105,11 @@ eyeball a CSS change without a phone in your hand.
 
 Two things this repo cannot see, so ask rather than guess:
 
-- **The vault repo** (`isaacstrang/obsidian`) is private and separate. If a change
-  touches the Markdown contract, the real `001 Tasks.md` has to be eyeballed by
-  hand, and the `personal-tasks` skill has to move in the same commit.
+- **The vault repo** (`isaacstrang/obsidian`) is private and separate. Confirmed
+  20 Aug 2026: the vault directory is the repo root, and its root holds
+  `001 Tasks.md`, `WU Ideas.md` and `Lessons Learned.md`. If a change touches
+  either Markdown contract, the real files have to be eyeballed by hand, and the
+  `personal-tasks` skill has to move in the same commit.
 - **The `index.lock` trap** below applies to the Cowork device bridge, not to
   Claude Code on the Mac. Local git here is ordinary git and can unlink files
   fine. Do not code around a problem you do not have.
@@ -179,13 +184,23 @@ idempotency test with it. There is one for each existing type in
 
 ### Blank lines
 
-`appendTask` and `prependTask` exist for one reason: a blank line between two
-`- [ ]` lines terminates the list in Obsidian's reading view, so the tasks below
-it visually vanish. Sections normally end with a blank line before the next
-heading, so a plain `items.push` lands the new task *after* that blank. Both
-helpers step over leading and trailing blanks. This shipped as a real bug and
-was caught only because Isaac used the app before I finished testing it. Do not
-reintroduce `items.push` for tasks.
+A parsed section carries **two** blank lines as real items: the one under its
+heading, and the one before the next heading. So a plain `items.push` lands a
+new task after the trailing blank, and `unshift` lands a completed task above
+the leading one. The results are `- [ ] a`, blank, `- [ ] b`, which Obsidian
+renders as a loose list, and a `## Done` heading with no blank line under it.
+
+`appendTask` and `prependTask` exist to prevent both. They anchor on the tasks
+themselves, inserting after the last task or before the first, and fall back to
+"after any leading blanks" for a section that has no tasks yet. That is what
+makes the empty-section and missing-section cases come out right too. Do not
+reintroduce `items.push` or `unshift` for tasks.
+
+**Severity, so nobody over-corrects:** this shipped and sat in the live vault
+file for a week before it was found, in August 2026. Verified by Isaac on 20
+Aug 2026 as cosmetic. The tasks are all still there and readable, just spaced
+apart and inconsistent with the tight lists the `personal-tasks` skill writes.
+Earlier versions of this file claimed the tasks visually vanish. They do not.
 
 ## Testing
 
