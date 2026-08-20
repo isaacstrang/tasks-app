@@ -14,6 +14,7 @@ const EXPORTS = [
   "SECTIONS", "DONE_H", "ALL_H", "ALIASES", "canonHeading",
   "TASK_RE", "parse", "serialize", "blockOf", "findTask",
   "appendTask", "prependTask", "applyOp", "applyAll", "clone", "fileOf",
+  "parseNote", "serializeNote", "flattenEntry", "applyNoteOp", "applyAllNotes",
 ];
 
 module.exports = new Function(

@@ -1,0 +1,1 @@
+Sponsor local meetups. Cover the monthly dues for adjacent community groups (paddling, running, newcomer, tech) in exchange for an intro to their members, then track signups with a unique per-group discount code.[[some-linked-note]]

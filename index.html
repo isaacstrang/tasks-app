@@ -340,6 +340,32 @@ const applyAll = (d, ops) => { for (const o of ops) applyOp(d, o); return d; };
 // ops, and they may be sitting in a phone's localStorage right now, so a
 // missing key must never be treated as unknown.
 const fileOf = op => op.file || "tasks";
+
+/* ---- note files ----
+   WU Ideas.md and Lessons Learned.md are not in the Tasks format. They have no
+   headings, no frontmatter and no list syntax: entries are plain paragraphs
+   separated by one blank line. That blank line is the record separator here,
+   which is the exact inverse of its meaning in 001 Tasks.md. Nothing is parsed
+   inside a paragraph, so wikilinks and punctuation pass through untouched. */
+const parseNote = t => t.replace(/\r\n/g, "\n").split(/\n\s*\n/)
+                        .map(s => s.trim()).filter(Boolean);
+
+const serializeNote = e => e.length ? e.join("\n\n") + "\n" : "";
+
+// Entries are single paragraphs by contract, so a pasted multi-line entry is
+// flattened rather than silently becoming two entries on the next read.
+const flattenEntry = s => s.replace(/\s*\n\s*/g, " ").trim();
+
+function applyNoteOp(entries, op){
+  if (op.t !== "note") return entries;
+  const text = flattenEntry(op.text);
+  if (!text) return entries;
+  if (entries.includes(text)) return entries;   // idempotent: a flush can be replayed
+  entries.unshift(text);
+  return entries;
+}
+
+const applyAllNotes = (entries, ops) => { for (const o of ops) applyNoteOp(entries, o); return entries; };
 const clone = d => JSON.parse(JSON.stringify(d));
 /* ===== MODEL END ===== */
 
