@@ -178,3 +178,12 @@ test("a section missing from the file still gets a blank line under its heading"
   const out = run(src, [{ t: "add", sec: "Ice box", text: "Schools deck" }]);
   assert.match(out, /## Ice box\n\n- \[ \] Schools deck/);
 });
+
+test("an op with no file key routes to tasks, so ops queued by the old version survive", () => {
+  assert.strictEqual(M.fileOf({ t: "add", sec: "Today", text: "Legacy op" }), "tasks");
+});
+
+test("an op with a file key routes to that file", () => {
+  assert.strictEqual(M.fileOf({ t: "note", file: "ideas", text: "Sponsor local meetups" }), "ideas");
+  assert.strictEqual(M.fileOf({ t: "add", file: "tasks", sec: "Today", text: "x" }), "tasks");
+});

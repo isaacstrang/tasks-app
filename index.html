@@ -177,6 +177,8 @@ a{color:var(--green)}
   <div class="f"><label for="cOwner">Owner (your GitHub username)</label><input id="cOwner" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
   <div class="f"><label for="cRepo">Repo</label><input id="cRepo" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="obsidian"></div>
   <div class="f"><label for="cPath">File path in repo</label><input id="cPath" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="001 Tasks.md"></div>
+  <div class="f"><label for="cLessons">Lessons file path</label><input id="cLessons" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Lessons Learned.md"></div>
+  <div class="f"><label for="cIdeas">Ideas file path</label><input id="cIdeas" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="WU Ideas.md"></div>
   <div class="f"><label for="cBranch">Branch</label><input id="cBranch" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="main"></div>
   <button class="primary" id="saveCfg">Connect</button>
   <button class="ghost hidden" id="cancelCfg">Cancel</button>
@@ -333,17 +335,24 @@ function applyOp(d, op){
   }
 }
 const applyAll = (d, ops) => { for (const o of ops) applyOp(d, o); return d; };
+
+// Ops queued by versions before v1.1.0 have no file key. They are all tasks
+// ops, and they may be sitting in a phone's localStorage right now, so a
+// missing key must never be treated as unknown.
+const fileOf = op => op.file || "tasks";
 const clone = d => JSON.parse(JSON.stringify(d));
 /* ===== MODEL END ===== */
 
-const LS = { cfg:"tasks.cfg", queue:"tasks.queue", cache:"tasks.cache", seg:"tasks.seg", closed:"tasks.closed" };
+const LS = { cfg:"tasks.cfg", queue:"tasks.queue", cache:"tasks.cache", seg:"tasks.seg",
+             closed:"tasks.closed", tab:"tasks.tab", noteCache: id => `tasks.cache.${id}` };
 const API = "https://api.github.com";
 
 /* ============================ state ============================ */
 let cfg    = load(LS.cfg, null);
 let queue  = load(LS.queue, []);
 let doc    = null;          // { pre:[], blocks:[{h,items:[]}] }
-let sha    = null;
+let shas   = { tasks:null, lessons:null, ideas:null };
+let noteCache = { lessons:null, ideas:null };   // null means not loaded yet
 let closed = new Set(load(LS.closed, [DONE_H]));
 let addSec = load(LS.seg, "This week");   // matches the vault default; tap a chip to change it
 let flushT = null, pollT = null, snackT = null, undoOp = null, busy = false;
@@ -352,6 +361,17 @@ function load(k, d){ try { const v = localStorage.getItem(k); return v ? JSON.pa
 function save(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
 
 const $ = id => document.getElementById(id);
+
+const FILES = {
+  tasks:   { cfgKey:"path",        label:"Tasks"   },
+  lessons: { cfgKey:"lessonsPath", label:"Lessons" },
+  ideas:   { cfgKey:"ideasPath",   label:"Ideas"   },
+};
+const pathOf = id => cfg[FILES[id].cfgKey];
+
+// Tasks gets a skeleton when the file does not exist yet. A note file must not,
+// or a brand new note is born containing "# Tasks" and four empty headings.
+const blankFor = id => id === "tasks" ? SKELETON : "";
 
 function push(op){
   applyOp(doc, op);
@@ -371,7 +391,7 @@ function b64decode(b64){
   for (let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
   return new TextDecoder().decode(bytes);
 }
-const url = () => `${API}/repos/${encodeURIComponent(cfg.owner)}/${encodeURIComponent(cfg.repo)}/contents/${cfg.path.split("/").map(encodeURIComponent).join("/")}`;
+const url = p => `${API}/repos/${encodeURIComponent(cfg.owner)}/${encodeURIComponent(cfg.repo)}/contents/${p.split("/").map(encodeURIComponent).join("/")}`;
 const headers = () => ({
   "Authorization": "Bearer " + cfg.token,
   "Accept": "application/vnd.github+json",
@@ -380,19 +400,19 @@ const headers = () => ({
 
 const SKELETON = "# Tasks\n\n" + ALL_H.map(h => "## " + h + "\n").join("\n") + "\n";
 
-async function fetchFile(){
-  const r = await fetch(`${url()}?ref=${encodeURIComponent(cfg.branch)}&t=${Date.now()}`,
+async function fetchFile(id){
+  const r = await fetch(`${url(pathOf(id))}?ref=${encodeURIComponent(cfg.branch)}&t=${Date.now()}`,
                         { headers: headers(), cache:"no-store" });
-  if (r.status === 404) return { text: SKELETON, sha: null };
+  if (r.status === 404) return { text: blankFor(id), sha: null };
   if (!r.ok) throw new Error(await errText(r));
   const j = await r.json();
   return { text: b64decode(j.content || ""), sha: j.sha };
 }
 
-async function putFile(text, curSha, msg){
+async function putFile(id, text, curSha, msg){
   const body = { message: msg, content: b64encode(text), branch: cfg.branch };
   if (curSha) body.sha = curSha;
-  const r = await fetch(url(), { method:"PUT", headers: { ...headers(), "Content-Type":"application/json" }, body: JSON.stringify(body) });
+  const r = await fetch(url(pathOf(id)), { method:"PUT", headers: { ...headers(), "Content-Type":"application/json" }, body: JSON.stringify(body) });
   if (!r.ok) { const e = new Error(await errText(r)); e.status = r.status; throw e; }
   const j = await r.json();
   return j.content.sha;
@@ -425,9 +445,9 @@ async function refresh(){
   if (busy) return;
   busy = true; setStatus("Syncing…");
   try {
-    const f = await fetchFile();
-    sha = f.sha;
-    doc = applyAll(parse(f.text), queue);
+    const f = await fetchFile("tasks");
+    shas.tasks = f.sha;
+    doc = applyAll(parse(f.text), queue.filter(op => fileOf(op) === "tasks"));
     save(LS.cache, { text: f.text, sha: f.sha });
     render(); statusIdle();
     if (queue.length) scheduleFlush(0);
@@ -450,13 +470,13 @@ async function flush(){
   try {
     let lastErr = null;
     for (let attempt = 0; attempt < 3; attempt++){
-      const f = await fetchFile();
+      const f = await fetchFile("tasks");
       const merged = applyAll(parse(f.text), sending);
       try {
-        sha = await putFile(serialize(merged), f.sha, `tasks: ${sending.length} change${sending.length>1?"s":""} from phone`);
+        shas.tasks = await putFile("tasks", serialize(merged), f.sha, `tasks: ${sending.length} change${sending.length>1?"s":""} from phone`);
         queue = queue.slice(sending.length); save(LS.queue, queue);
         doc = applyAll(merged, queue);
-        save(LS.cache, { text: serialize(doc), sha });
+        save(LS.cache, { text: serialize(doc), sha: shas.tasks });
         render(); statusIdle(); busy = false;
         if (queue.length) scheduleFlush(300);
         return;
@@ -623,6 +643,8 @@ function showSetup(existing){
   $("cOwner").value  = c.owner  || "";
   $("cRepo").value   = c.repo   || "obsidian";
   $("cPath").value   = c.path   || "001 Tasks.md";
+  $("cLessons").value = c.lessonsPath || "Lessons Learned.md";
+  $("cIdeas").value   = c.ideasPath   || "WU Ideas.md";
   $("cBranch").value = c.branch || "main";
   $("cancelCfg").classList.toggle("hidden", !cfg);
   $("forgetCfg").classList.toggle("hidden", !cfg);
@@ -635,6 +657,8 @@ async function saveCfg(){
     owner:  $("cOwner").value.trim(),
     repo:   $("cRepo").value.trim(),
     path:   $("cPath").value.trim().replace(/^\/+/,""),
+    lessonsPath: $("cLessons").value.trim().replace(/^\/+/,"") || "Lessons Learned.md",
+    ideasPath:   $("cIdeas").value.trim().replace(/^\/+/,"")   || "WU Ideas.md",
     branch: $("cBranch").value.trim() || "main",
   };
   for (const k of ["token","owner","repo","path"]){
@@ -643,8 +667,8 @@ async function saveCfg(){
   const prev = cfg; cfg = next;
   $("saveCfg").textContent = "Checking…";
   try {
-    const f = await fetchFile();
-    if (f.sha === null) await putFile(SKELETON, null, "tasks: create task file");
+    const f = await fetchFile("tasks");
+    if (f.sha === null) await putFile("tasks", SKELETON, null, "tasks: create task file");
     save(LS.cfg, cfg);
     showApp(); await refresh();
   } catch(e){
@@ -689,7 +713,9 @@ if (!cfg){
 } else {
   showApp();
   const cached = load(LS.cache, null);
-  if (cached){ sha = cached.sha; doc = applyAll(parse(cached.text), queue); render(); statusIdle(); }
+  if (cached){ shas.tasks = cached.sha;
+               doc = applyAll(parse(cached.text), queue.filter(op => fileOf(op) === "tasks"));
+               render(); statusIdle(); }
   refresh();
   pollT = setInterval(() => { if (!document.hidden && !queue.length) refresh(); }, 90000);
 }
