@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.1.1, 20 August 2026
+
+Fixed:
+- The Lessons and Ideas tabs threw "Cannot read properties of undefined
+  (reading 'split')" on any phone set up before v1.1.0. The config in
+  `localStorage` still had the v1.0 shape, with no `lessonsPath` or
+  `ideasPath`, and nothing rewrites it until Connect is pressed again, so the
+  path handed to the GitHub URL builder was `undefined`. `pathOf` now falls
+  back to the default path for the file. Tasks was unaffected and no vault
+  file was ever at risk: the crash happened before the fetch.
+- The e2e suite now boots the app once with a pre-v1.1.0 config. Every note
+  test injected the new keys, so the upgrade path, which is the only path a
+  real phone takes, had never been exercised.
+
 ## v1.1.0, 20 August 2026
 
 Added:

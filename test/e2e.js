@@ -229,6 +229,24 @@ test("opening a note tab shows what is already in the file", async () => {
   }, { cfg: NOTE_CFG });
 });
 
+// A config saved before the note tabs shipped has no lessonsPath or ideasPath.
+// Every other note test injects NOTE_CFG, so the upgrade path, which is the
+// only path a real phone takes, went untested until it broke on the phone.
+test("a config saved before the note tabs shipped still finds the note files", async () => {
+  const files = { "001 Tasks.md": BASE, "WU Ideas.md": IDEAS, "Lessons Learned.md": LESSONS };
+  await withApp(files, async page => {
+    await page.click('[data-tab="lessons"]');
+    await page.waitForSelector(".entry", { timeout: 8000 });
+    const texts = await page.$$eval(".entry", els => els.map(e => e.textContent));
+    assert.deepStrictEqual(texts, ["An existing lesson"]);
+
+    await addTo(page, "ideas", "An idea from a phone that never re-connected");
+    await until(() => files["WU Ideas.md"].startsWith("An idea from a phone that never re-connected"),
+                "the idea to land in WU Ideas.md");
+    assert.strictEqual(files["001 Tasks.md"], BASE, "the task file was touched");
+  });
+});
+
 test("boot fetches only the task file, and a note is fetched when its tab opens", async () => {
   const files = { "001 Tasks.md": BASE, "WU Ideas.md": IDEAS, "Lessons Learned.md": LESSONS };
   const asked = [];

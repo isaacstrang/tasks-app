@@ -416,11 +416,17 @@ function save(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e
 const $ = id => document.getElementById(id);
 
 const FILES = {
-  tasks:   { cfgKey:"path",        label:"Tasks"   },
-  lessons: { cfgKey:"lessonsPath", label:"Lessons" },
-  ideas:   { cfgKey:"ideasPath",   label:"Ideas"   },
+  tasks:   { cfgKey:"path",        label:"Tasks",   def:"001 Tasks.md" },
+  lessons: { cfgKey:"lessonsPath", label:"Lessons", def:"Lessons Learned.md" },
+  ideas:   { cfgKey:"ideasPath",   label:"Ideas",   def:"WU Ideas.md" },
 };
-const pathOf = id => cfg[FILES[id].cfgKey];
+
+// The default matters on upgrade, not on a fresh setup. A config saved before
+// the note tabs shipped has no lessonsPath or ideasPath, and nothing rewrites
+// it until Connect is pressed again, so without a fallback here every note tab
+// throws on undefined.split the moment it is opened. Any new file added to
+// this map needs a def for the same reason.
+const pathOf = id => cfg[FILES[id].cfgKey] || FILES[id].def;
 
 // Tasks gets a skeleton when the file does not exist yet. A note file must not,
 // or a brand new note is born containing "# Tasks" and four empty headings.
