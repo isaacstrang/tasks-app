@@ -1,5 +1,36 @@
 # Changelog
 
+## v1.2.0, 29 October 2026
+
+Added:
+- Reorder tasks inside a section. Each of the four known sections gets a
+  Reorder pill in its heading once it holds more than one task. Tapping it
+  swaps that section's checkboxes for a pair of arrows and makes the titles
+  inert, so arranging the list cannot complete a task by mis-tap. Tapping Done
+  puts the section back.
+- A `reorder` op: `{ t:"reorder", file:"tasks", sec, text, before }`. It names
+  the task it should sit immediately above, and `before:null` means the bottom
+  of the section. Position is never an index, because an index points at a
+  different task the moment anyone else writes to the file and the Mac pushes
+  every five minutes. Naming a neighbour makes the op idempotent for free: a
+  replay after a failed flush puts the task in the same place.
+- The op no-ops rather than guessing when the task or the anchor has gone from
+  the section, which is what happens when a replay lands on a version where
+  the task was deleted in Obsidian. Each of those guards is pinned by a test;
+  all six were confirmed by mutating the code and watching the right test fail.
+
+Notes:
+- `## Done` gets no reorder control. It is newest-first by its completion
+  stamp, so an order imposed on it would not survive the next completion.
+  Unknown sections stay read-mostly as before.
+- Reorder moves within a section only. Putting a task from This week into a
+  specific slot in Today is still two actions, the existing move followed by a
+  reorder.
+- No undo snackbar on a reorder: the opposite arrow is already under the thumb,
+  and a snackbar on every tap would cover the list being arranged.
+- The Markdown contract is unchanged, so the `personal-tasks` skill needs no
+  matching edit.
+
 ## v1.1.1, 20 August 2026
 
 Fixed:
