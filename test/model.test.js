@@ -179,6 +179,126 @@ test("a section missing from the file still gets a blank line under its heading"
   assert.match(out, /## Ice box\n\n- \[ \] Schools deck/);
 });
 
+// A section with more than one task in it, so order is actually observable.
+const MULTI = [
+  "# Tasks",
+  "",
+  "## Today",
+  "",
+  "- [ ] Call the outfitter",
+  "- [ ] Pack the bins",
+  "- [ ] Reply to the waitlist",
+  "- [ ] Book the permit",
+  "",
+  "## This week",
+  "",
+  "- [ ] Review the welcome email",
+  "",
+  "## Longer term",
+  "",
+  "## Ice box",
+  "",
+  "## Done",
+  "",
+].join("\n");
+
+// Reorder carries a neighbour, never an index. "Put this line immediately above
+// that one" gives the same answer however many times it is replayed, and it
+// still means something after the Mac has pushed a file with other tasks in it.
+// An index would not: it would silently point at a different task.
+test("reorder moves a task to sit immediately above its anchor", () => {
+  const out = run(MULTI, [{ t:"reorder", sec:"Today", text:"Book the permit", before:"Call the outfitter" }]);
+  assert.deepStrictEqual(tasksIn(out, "Today"), [
+    "- [ ] Book the permit",
+    "- [ ] Call the outfitter",
+    "- [ ] Pack the bins",
+    "- [ ] Reply to the waitlist",
+  ]);
+});
+
+test("reorder with a null anchor sends the task to the bottom of its section", () => {
+  const out = run(MULTI, [{ t:"reorder", sec:"Today", text:"Call the outfitter", before:null }]);
+  assert.deepStrictEqual(tasksIn(out, "Today"), [
+    "- [ ] Pack the bins",
+    "- [ ] Reply to the waitlist",
+    "- [ ] Book the permit",
+    "- [ ] Call the outfitter",
+  ]);
+});
+
+test("reorder one step down anchors on the task two places below", () => {
+  const out = run(MULTI, [{ t:"reorder", sec:"Today", text:"Call the outfitter", before:"Reply to the waitlist" }]);
+  assert.deepStrictEqual(tasksIn(out, "Today"), [
+    "- [ ] Pack the bins",
+    "- [ ] Call the outfitter",
+    "- [ ] Reply to the waitlist",
+    "- [ ] Book the permit",
+  ]);
+});
+
+test("reorder is idempotent: replaying it after it landed changes nothing", () => {
+  const op = { t:"reorder", sec:"Today", text:"Book the permit", before:"Call the outfitter" };
+  assert.strictEqual(run(MULTI, [op, op, op]), run(MULTI, [op]));
+});
+
+test("reorder is a no-op when the anchor is no longer in the section", () => {
+  // The task being moved is deliberately not the last one in the section. A
+  // splice(-1) fallback would drop it at the bottom and look like a success.
+  const out = run(MULTI, [
+    { t:"del",     sec:"Today", text:"Reply to the waitlist" },
+    { t:"reorder", sec:"Today", text:"Call the outfitter", before:"Reply to the waitlist" },
+  ]);
+  assert.deepStrictEqual(tasksIn(out, "Today"), [
+    "- [ ] Call the outfitter",
+    "- [ ] Pack the bins",
+    "- [ ] Book the permit",
+  ]);
+});
+
+test("reorder is a no-op when the task itself is no longer in the section", () => {
+  // Done is the last section, so its final item is a task and not the trailing
+  // blank line every other section carries. That is the shape in which a
+  // splice(-1) fallback steals a real task instead of a blank.
+  const src = [
+    "# Tasks", "", "## Today", "", "- [ ] Call the outfitter", "",
+    "## Done", "", "- [x] Rope (done Aug 18)", "- [x] Maps (done Aug 17)",
+  ].join("\n");   // no trailing newline, so Done's last item is a task
+  const out = run(src, [{ t:"reorder", sec:"Done", text:"Gone already", before:"Rope (done Aug 18)" }]);
+  assert.deepStrictEqual(tasksIn(out, "Done"), [
+    "- [x] Rope (done Aug 18)",
+    "- [x] Maps (done Aug 17)",
+  ]);
+  assert.ok(!out.includes("Gone already"));
+});
+
+test("reorder never conjures a task that was not already in the file", () => {
+  const out = run(MULTI, [{ t:"reorder", sec:"Today", text:"Never existed", before:"Pack the bins" }]);
+  assert.ok(!out.includes("Never existed"));
+});
+
+test("reorder anchored on itself changes nothing", () => {
+  const op = { t:"reorder", sec:"Today", text:"Pack the bins", before:"Pack the bins" };
+  assert.strictEqual(run(MULTI, [op]), run(MULTI, []));
+});
+
+test("reorder to the bottom lands tightly after the last task", () => {
+  const out = run(MULTI, [{ t:"reorder", sec:"Today", text:"Call the outfitter", before:null }]);
+  assert.match(out, /- \[ \] Book the permit\n- \[ \] Call the outfitter\n\n## This week/);
+});
+
+test("reorder keeps the list tight and the heading spacing intact", () => {
+  const out = run(MULTI, [{ t:"reorder", sec:"Today", text:"Book the permit", before:"Call the outfitter" }]);
+  assert.match(out, /## Today\n\n- \[ \] Book the permit\n- \[ \] Call the outfitter/);
+  assert.match(out, /- \[ \] Reply to the waitlist\n\n## This week/);
+});
+
+test("reorder leaves an unrecognised line in the section where it was", () => {
+  const src = "# Tasks\n\n## Today\n\n- [ ] One\n> a blockquote the app cannot show\n- [ ] Two\n";
+  const out = run(src, [{ t:"reorder", sec:"Today", text:"Two", before:"One" }]);
+  assert.ok(out.includes("> a blockquote the app cannot show"));
+  assert.deepStrictEqual(tasksIn(out, "Today"), ["- [ ] Two", "- [ ] One"]);
+});
+
 test("an op with no file key routes to tasks, so ops queued by the old version survive", () => {
   assert.strictEqual(M.fileOf({ t: "add", sec: "Today", text: "Legacy op" }), "tasks");
 });
