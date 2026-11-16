@@ -1,5 +1,33 @@
 # Changelog
 
+## v1.3.0, 16 November 2026
+
+Added:
+- Send to top and Send to bottom in the task action sheet. Walking a task from
+  fourth place to the top with the arrows was five taps counting the mode in
+  and out. This is two, whatever the distance.
+- The same two rows, and nothing else, open when a task title is tapped in
+  reorder mode. That title used to be dead space, deliberately inert so a
+  mis-tap could not complete a task. It now offers the jumps while still
+  keeping Edit, Delete and Complete out of reach of a clumsy thumb.
+- Both jumps are undoable from the snackbar. The inverse is a reorder back
+  above whatever followed the task, or to the bottom when nothing did. A jump
+  is the move most worth being able to take back; a single arrow step is
+  already undone by the opposite arrow.
+
+Notes:
+- No new op. Send to top is a `reorder` anchored on the first task in the
+  section, send to bottom is the `before:null` case the op has handled since
+  v1.2.0. So the sync, replay and idempotency behaviour is unchanged and
+  already covered by the model tests.
+- Offered on the same terms as the Reorder pill: not in Done, not in unknown
+  sections, and each end of a list hides the jump that would do nothing.
+
+Changed:
+- `npm run shots` now captures the action sheet as well, in both themes. The
+  sheet was the thing this release changes most and nothing was photographing
+  it.
+
 ## v1.2.0, 16 November 2026
 
 Added:

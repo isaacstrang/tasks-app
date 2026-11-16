@@ -723,9 +723,10 @@ function taskEl(secH, t){
 function reorderEl(secH, tasks, i){
   const li = document.createElement("li");
   li.className = "task reordering" + (tasks[i].done ? " done" : "");
-  const ttl = document.createElement("span");
+  const ttl = document.createElement("button");
   ttl.className = "ttl";
   ttl.textContent = tasks[i].text;
+  ttl.onclick = () => openSheet(secH, tasks[i], true);
   li.append(mvBtn(secH, tasks, i, -1), ttl, mvBtn(secH, tasks, i, 1));
   return li;
 }
@@ -741,6 +742,7 @@ function mvBtn(secH, tasks, i, dir){
   else b.onclick = () => nudge(secH, tasks, i, dir);
   return b;
 }
+const tasksOf = h => ((doc && doc.blocks.find(b => b.h === h)) || { items:[] }).items.filter(i => i.k === "t");
 const esc = s => s.replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 /* ============================ actions ============================ */
@@ -789,6 +791,23 @@ function nudge(sec, tasks, i, dir){
   push({ t:"reorder", file:"tasks", sec, text: tasks[i].text, before });
 }
 
+// Send to top and bottom collapse what the arrows do one step at a time, so a
+// jump costs two taps whatever the distance. No new op: the top is a reorder
+// anchored on the first task, the bottom is before:null.
+// The inverse is a reorder back above whatever followed the task, or to the
+// bottom when nothing did. A jump is the move most worth being able to take
+// back; a single arrow step is already undone by the opposite arrow.
+function sendTo(sec, text, where){
+  const sibs = tasksOf(sec);
+  const at = sibs.findIndex(x => x.text === text);
+  if (at === -1) return;
+  if (where === "top" ? at === 0 : at === sibs.length - 1) return;
+  const backTo = at + 1 < sibs.length ? sibs[at + 1].text : null;
+  push({ t:"reorder", file:"tasks", sec, text, before: where === "top" ? sibs[0].text : null });
+  toast(where === "top" ? "Sent to top" : "Sent to bottom",
+        { t:"reorder", file:"tasks", sec, text, before: backTo });
+}
+
 function delTask(sec, text){
   push({ t:"del", sec, text });
   toast("Deleted", { t:"add", sec, text });
@@ -804,7 +823,7 @@ function editTask(sec, t){
 }
 
 /* ============================ sheet ============================ */
-function openSheet(sec, t){
+function openSheet(sec, t, jumpsOnly){
   $("sheetTitle").textContent = t.text;
   const rows = $("sheetRows");
   rows.innerHTML = "";
@@ -815,12 +834,31 @@ function openSheet(sec, t){
     b.onclick = () => { closeSheet(); setTimeout(fn, 120); };
     rows.appendChild(b);
   };
-  if (sec !== DONE_H){
-    for (const s of SECTIONS) if (s.h !== sec) add("&#8594;", "Move to " + s.h, () => moveTo(sec, t.text, s.h));
-    rows.appendChild(Object.assign(document.createElement("div"), { className:"sep" }));
+  const sep = () => rows.appendChild(Object.assign(document.createElement("div"), { className:"sep" }));
+
+  // The jumps are offered on the same terms as the Reorder pill, so Done and
+  // unknown sections get neither, and each end of the list hides the jump that
+  // would do nothing. A length check would be dead code: in a one-task section
+  // at is 0, so both end tests already fail.
+  const sibs = tasksOf(sec);
+  const at = sibs.findIndex(x => x.text === t.text);
+  let jumps = false;
+  if (SECTIONS.some(s => s.h === sec) && at > -1){
+    if (at > 0)               { add("&#8607;", "Send to top",    () => sendTo(sec, t.text, "top"));    jumps = true; }
+    if (at < sibs.length - 1) { add("&#8609;", "Send to bottom", () => sendTo(sec, t.text, "bottom")); jumps = true; }
   }
-  add("&#9998;", "Edit", () => editTask(sec, t));
-  add("&#10005;", "Delete", () => delTask(sec, t.text), "danger");
+
+  // jumpsOnly is the sheet reorder mode opens: the two jumps and nothing that
+  // can lose a task, because that mode exists to survive a clumsy thumb.
+  if (!jumpsOnly){
+    if (jumps) sep();
+    if (sec !== DONE_H){
+      for (const s of SECTIONS) if (s.h !== sec) add("&#8594;", "Move to " + s.h, () => moveTo(sec, t.text, s.h));
+      sep();
+    }
+    add("&#9998;", "Edit", () => editTask(sec, t));
+    add("&#10005;", "Delete", () => delTask(sec, t.text), "danger");
+  }
   $("scrim").classList.add("on"); $("sheet").classList.add("on");
 }
 function closeSheet(){ $("scrim").classList.remove("on"); $("sheet").classList.remove("on"); }

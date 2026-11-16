@@ -373,10 +373,144 @@ test("reorder mode removes the checkboxes, so no task can be completed by mis-ta
                        "a checkbox is still tappable in reorder mode");
     await row(page, 0, 0).locator(".ttl").click();
     await page.waitForTimeout(500);
-    assert.strictEqual(await page.locator("#sheet.on").count(), 0,
-                       "the action sheet opened from reorder mode");
     assert.strictEqual(files["001 Tasks.md"], ORDERED,
                        "the file changed while only tapping a title");
+  });
+});
+
+/* ---------- send to top and bottom ---------- */
+// Walking a task up three places with the arrows is five taps including the
+// mode in and out. These are two, whatever the distance. No new op: send to
+// top is a reorder anchored on the first task, send to bottom is before:null.
+
+test("send to top from the list lands the task first in the file", async () => {
+  const files = { "001 Tasks.md": ORDERED };
+  await withApp(files, async page => {
+    await row(page, 0, 2).locator(".ttl").click();
+    await page.locator("#sheetRows .row", { hasText: "Send to top" }).click();
+    await until(() => todayTasks(files["001 Tasks.md"])[0] === "- [ ] Third task",
+                "the task to reach the top of Today");
+    assert.deepStrictEqual(todayTasks(files["001 Tasks.md"]),
+      ["- [ ] Third task", "- [ ] First task", "- [ ] Second task"]);
+    assert.ok(/## Today\n\n- \[ \] Third task\n- \[ \] First task/.test(files["001 Tasks.md"]),
+      "send to top loosened the list or lost the blank under the heading");
+  });
+});
+
+test("send to bottom from the list lands the task last, tightly", async () => {
+  const files = { "001 Tasks.md": ORDERED };
+  await withApp(files, async page => {
+    await row(page, 0, 0).locator(".ttl").click();
+    await page.locator("#sheetRows .row", { hasText: "Send to bottom" }).click();
+    await until(() => todayTasks(files["001 Tasks.md"])[2] === "- [ ] First task",
+                "the task to reach the bottom of Today");
+    assert.deepStrictEqual(todayTasks(files["001 Tasks.md"]),
+      ["- [ ] Second task", "- [ ] Third task", "- [ ] First task"]);
+    assert.ok(/- \[ \] First task\n\n## This week/.test(files["001 Tasks.md"]),
+      "the task at the bottom gained a blank line above it");
+  });
+});
+
+test("a task already at the top is offered send to bottom but not send to top", async () => {
+  const files = { "001 Tasks.md": ORDERED };
+  await withApp(files, async page => {
+    await row(page, 0, 0).locator(".ttl").click();
+    await page.waitForSelector("#sheet.on");
+    assert.strictEqual(await page.locator("#sheetRows .row", { hasText: "Send to top" }).count(), 0,
+                       "offered to send the top task to the top");
+    assert.strictEqual(await page.locator("#sheetRows .row", { hasText: "Send to bottom" }).count(), 1);
+  });
+});
+
+test("a task already at the bottom is offered send to top but not send to bottom", async () => {
+  const files = { "001 Tasks.md": ORDERED };
+  await withApp(files, async page => {
+    await row(page, 0, 2).locator(".ttl").click();
+    await page.waitForSelector("#sheet.on");
+    assert.strictEqual(await page.locator("#sheetRows .row", { hasText: "Send to bottom" }).count(), 0,
+                       "offered to send the bottom task to the bottom");
+    assert.strictEqual(await page.locator("#sheetRows .row", { hasText: "Send to top" }).count(), 1);
+  });
+});
+
+test("a one-task section is offered neither jump", async () => {
+  const files = { "001 Tasks.md": ORDERED };
+  await withApp(files, async page => {
+    await row(page, 1, 0).locator(".ttl").click();
+    await page.waitForSelector("#sheet.on");
+    assert.strictEqual(await page.locator("#sheetRows .row", { hasText: "Send to" }).count(), 0);
+  });
+});
+
+test("Done is offered neither jump, matching its missing reorder control", async () => {
+  const files = { "001 Tasks.md": ORDERED };
+  await withApp(files, async page => {
+    await sec(page, 4).locator(".sechead").click();
+    await sec(page, 4).locator("li.task").nth(1).locator(".ttl").click();
+    await page.waitForSelector("#sheet.on");
+    assert.strictEqual(await page.locator("#sheetRows .row", { hasText: "Send to" }).count(), 0);
+  });
+});
+
+// A jump is the move you are most likely to regret, unlike a single arrow step
+// which the opposite arrow already undoes.
+test("undo after send to top puts the task back where it was", async () => {
+  const files = { "001 Tasks.md": ORDERED };
+  await withApp(files, async page => {
+    await row(page, 0, 2).locator(".ttl").click();
+    await page.locator("#sheetRows .row", { hasText: "Send to top" }).click();
+    await until(() => todayTasks(files["001 Tasks.md"])[0] === "- [ ] Third task",
+                "the jump to reach the file");
+    await page.click("#snackAct");
+    await until(() => todayTasks(files["001 Tasks.md"])[2] === "- [ ] Third task",
+                "the undo to reach the file");
+    assert.deepStrictEqual(todayTasks(files["001 Tasks.md"]),
+      ["- [ ] First task", "- [ ] Second task", "- [ ] Third task"]);
+  });
+});
+
+test("undo after send to bottom puts the task back where it was", async () => {
+  const files = { "001 Tasks.md": ORDERED };
+  await withApp(files, async page => {
+    await row(page, 0, 0).locator(".ttl").click();
+    await page.locator("#sheetRows .row", { hasText: "Send to bottom" }).click();
+    await until(() => todayTasks(files["001 Tasks.md"])[2] === "- [ ] First task",
+                "the jump to reach the file");
+    await page.click("#snackAct");
+    await until(() => todayTasks(files["001 Tasks.md"])[0] === "- [ ] First task",
+                "the undo to reach the file");
+    assert.deepStrictEqual(todayTasks(files["001 Tasks.md"]),
+      ["- [ ] First task", "- [ ] Second task", "- [ ] Third task"]);
+  });
+});
+
+test("in reorder mode the title offers the jumps and nothing destructive", async () => {
+  const files = { "001 Tasks.md": ORDERED };
+  await withApp(files, async page => {
+    await sec(page, 0).locator(".reorderbtn").click();
+    await row(page, 0, 2).locator(".ttl").click();
+    await page.waitForSelector("#sheet.on");
+    assert.strictEqual(await page.locator("#sheetRows .row", { hasText: "Send to top" }).count(), 1,
+                       "no jump offered from reorder mode");
+    for (const forbidden of ["Delete", "Edit", "Move to"]){
+      assert.strictEqual(await page.locator("#sheetRows .row", { hasText: forbidden }).count(), 0,
+                         forbidden + " is reachable from reorder mode");
+    }
+  });
+});
+
+test("a jump taken from reorder mode lands in the file and keeps the mode open", async () => {
+  const files = { "001 Tasks.md": ORDERED };
+  await withApp(files, async page => {
+    await sec(page, 0).locator(".reorderbtn").click();
+    await row(page, 0, 2).locator(".ttl").click();
+    await page.locator("#sheetRows .row", { hasText: "Send to top" }).click();
+    await until(() => todayTasks(files["001 Tasks.md"])[0] === "- [ ] Third task",
+                "the jump to reach the file");
+    assert.strictEqual(await sec(page, 0).locator(".reorderbtn").textContent(), "Done",
+                       "the jump dropped out of reorder mode");
+    assert.strictEqual(await sec(page, 0).locator(".check").count(), 0,
+                       "the checkboxes came back after a jump");
   });
 });
 
@@ -437,6 +571,15 @@ async function shots(){
         await page.screenshot({ path: path.join(dir, `${t}-${scheme}.png`) });
       }
       await page.click('[data-tab="tasks"]');
+      // The middle task, so both jumps appear in the sheet.
+      await sec(page, 0).locator("li.task").nth(1).locator(".ttl").click();
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: path.join(dir, `sheet-${scheme}.png`) });
+      // The scrim fills the screen but the sheet covers its centre, so a
+      // default centre-click lands on the sheet and never dismisses it.
+      await page.locator("#scrim").click({ position: { x: 10, y: 10 } });
+      await page.waitForSelector("#sheet:not(.on)");
+      await page.waitForTimeout(250);
       await sec(page, 0).locator(".reorderbtn").click();
       await page.waitForTimeout(300);
       await page.screenshot({ path: path.join(dir, `reorder-${scheme}.png`) });

@@ -1,4 +1,4 @@
-const CACHE = "tasks-v1.2.0";
+const CACHE = "tasks-v1.3.0";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", e => {
