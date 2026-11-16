@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.2.0, 29 October 2026
+## v1.2.0, 16 November 2026
 
 Added:
 - Reorder tasks inside a section. Each of the four known sections gets a
