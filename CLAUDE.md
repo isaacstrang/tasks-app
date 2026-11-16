@@ -187,6 +187,7 @@ optimistically to the in-memory doc, and schedules a debounced flush:
 { t:"del",  file:"tasks", sec, text }
 { t:"edit", file:"tasks", sec, text, newText }
 { t:"move", file:"tasks", from, to, text, newText?, done? }
+{ t:"reorder", file:"tasks", sec, text, before }
 { t:"note", file:"lessons"|"ideas", text }
 ```
 
@@ -228,6 +229,24 @@ effect. `add` checks for an existing identical line first; `move` returns early
 if the task is already at the destination. If you add an op type, add an
 idempotency test with it. There is one for each existing type in
 `test/model.test.js`.
+
+**Position is a neighbour, never an index.** `reorder` carries `before`, the
+exact text of the task it should sit immediately above, with `before:null`
+meaning the bottom of the section. An index would point at a different task the
+moment anyone else writes to the file, and the Mac pushes every five minutes.
+Naming a neighbour also makes the op idempotent for free, because "put this
+line above that one" gives the same answer however many times it is replayed.
+It no-ops when either the task or the anchor has gone from the section, which
+is exactly what a replay meets when the task was deleted in Obsidian in the
+meantime.
+
+Beware `Array.splice(-1, 1)`. It is not an error, it silently removes the last
+element, so every `findTask` result has to be checked against -1 before it
+reaches a splice. Two of the reorder guards were written correctly but went
+unpinned by tests at first, because in the fixtures the stolen last item
+happened to be a blank line and `serialize` collapses runs of newlines. A
+section whose last item is a real task, which means the last section in the
+file, is the shape that exposes it.
 
 ### Blank lines
 

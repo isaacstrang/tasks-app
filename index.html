@@ -92,12 +92,33 @@ header{
 main{padding:6px 12px calc(120px + var(--safe-b))}
 section.sec{margin-top:14px}
 .sechead{
-  display:flex;align-items:center;gap:8px;width:100%;
+  display:flex;align-items:center;gap:8px;flex:1;min-width:0;
   padding:8px 4px;font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)
 }
 .sechead .count{font-weight:600;letter-spacing:0;text-transform:none;font-size:12px;opacity:.75}
 .sechead .caret{margin-left:auto;transition:transform .15s;font-size:11px;opacity:.6}
 .sechead[aria-expanded="false"] .caret{transform:rotate(-90deg)}
+/* The heading is itself a button, so the reorder control cannot sit inside it.
+   The row wraps both: tap the heading to collapse, tap the pill to reorder. */
+.sechead-row{display:flex;align-items:center;gap:6px;min-height:40px}
+.reorderbtn{
+  flex:none;min-height:40px;padding:0 13px;border-radius:999px;
+  font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+  background:var(--panel);color:var(--muted)
+}
+.reorderbtn.on{background:var(--green);color:#fff}
+.mv{
+  flex:0 0 46px;min-height:46px;align-self:stretch;display:grid;place-items:center;
+  color:var(--green);font-size:13px
+}
+.mv:disabled{color:var(--line);cursor:default}
+li.reordering .ttl{padding-left:0}
+/* Green on the dark panel fails contrast, same reason the selected tab goes
+   yellow in dark mode. */
+@media (prefers-color-scheme:dark){
+  .reorderbtn.on{background:var(--yellow);color:#000002}
+  .mv{color:var(--yellow)}
+}
 ul.tasks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
 li.task{
   display:flex;align-items:flex-start;gap:2px;background:var(--card);border:1px solid var(--line);
@@ -329,6 +350,7 @@ function afterLeadingBlanks(b){
 /* ============================ ops ============================ */
 // { t:"add", sec, text } | { t:"del", sec, text }
 // { t:"edit", sec, text, newText } | { t:"move", from, to, text, newText, done }
+// { t:"reorder", sec, text, before }
 function applyOp(d, op){
   if (op.t === "add"){
     const b = blockOf(d, op.sec);
@@ -343,6 +365,22 @@ function applyOp(d, op){
   if (op.t === "edit"){
     const b = blockOf(d, op.sec), i = findTask(b, op.text);
     if (i > -1) b.items[i].text = op.newText;
+    return;
+  }
+  // Position is expressed as a neighbour, never an index. An index would point
+  // at a different task the moment anyone else writes to the file, and the Mac
+  // pushes every five minutes. "Sit immediately above this line" survives that,
+  // and replaying it is free: the task ends up in the same place every time.
+  // before:null means the bottom of the section.
+  if (op.t === "reorder"){
+    const b = blockOf(d, op.sec);
+    const i = findTask(b, op.text);
+    if (i === -1) return;                 // already moved, deleted, or never here
+    if (op.before === op.text) return;    // anchored on itself
+    if (op.before != null && findTask(b, op.before) === -1) return;  // anchor is gone
+    const item = b.items.splice(i, 1)[0];
+    if (op.before == null) appendTask(b, item);
+    else b.items.splice(findTask(b, op.before), 0, item);
     return;
   }
   if (op.t === "move"){
@@ -409,6 +447,7 @@ let noteCache = { lessons:null, ideas:null };   // null means not loaded yet
 let closed = new Set(load(LS.closed, [DONE_H]));
 let addSec = load(LS.seg, "This week");   // matches the vault default; tap a chip to change it
 let flushT = null, pollT = null, snackT = null, undoOp = null, busy = false;
+let reorderSec = null;     // heading currently in reorder mode, deliberately not persisted
 
 function load(k, d){ try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e){ return d; } }
 function save(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
@@ -598,6 +637,14 @@ function commitMsg(id, n){
 /* ============================ render ============================ */
 function render(){
   if (!doc) return;
+  // Leave reorder mode if its section has collapsed or dropped below two tasks.
+  // The Done pill is only drawn for a reorderable section, so without this the
+  // mode could strand the list with no way back to the checkboxes.
+  if (reorderSec){
+    const rb = doc.blocks.find(b => b.h === reorderSec);
+    const n = rb ? rb.items.filter(i => i.k === "t").length : 0;
+    if (n < 2 || closed.has(reorderSec)) reorderSec = null;
+  }
   const list = $("list");
   const frag = document.createDocumentFragment();
 
@@ -610,6 +657,8 @@ function render(){
     sec.className = "sec";
 
     const isOpen = !closed.has(h);
+    const headRow = document.createElement("div");
+    headRow.className = "sechead-row";
     const head = document.createElement("button");
     head.className = "sechead";
     head.setAttribute("aria-expanded", String(isOpen));
@@ -618,7 +667,20 @@ function render(){
       if (closed.has(h)) closed.delete(h); else closed.add(h);
       save(LS.closed, [...closed]); render();
     };
-    sec.appendChild(head);
+    headRow.appendChild(head);
+
+    // Reordering only earns a control in a section with a list to arrange.
+    // Done is newest-first by its stamp, so an order imposed on it means
+    // nothing, and unknown sections stay read-mostly.
+    const inReorder = reorderSec === h;
+    if (isOpen && tasks.length > 1 && SECTIONS.some(s => s.h === h)){
+      const rb = document.createElement("button");
+      rb.className = "reorderbtn" + (inReorder ? " on" : "");
+      rb.textContent = inReorder ? "Done" : "Reorder";
+      rb.onclick = () => { reorderSec = inReorder ? null : h; render(); };
+      headRow.appendChild(rb);
+    }
+    sec.appendChild(headRow);
 
     if (isOpen){
       if (!tasks.length){
@@ -629,7 +691,7 @@ function render(){
       } else {
         const ul = document.createElement("ul");
         ul.className = "tasks";
-        for (const t of tasks) ul.appendChild(taskEl(h, t));
+        tasks.forEach((t, i) => ul.appendChild(inReorder ? reorderEl(h, tasks, i) : taskEl(h, t)));
         sec.appendChild(ul);
       }
     }
@@ -655,6 +717,29 @@ function taskEl(secH, t){
 
   li.append(chk, ttl);
   return li;
+}
+// Reorder mode swaps the checkbox for a pair of arrows and makes the title
+// inert, so a mis-tap cannot complete a task while the list is being arranged.
+function reorderEl(secH, tasks, i){
+  const li = document.createElement("li");
+  li.className = "task reordering" + (tasks[i].done ? " done" : "");
+  const ttl = document.createElement("span");
+  ttl.className = "ttl";
+  ttl.textContent = tasks[i].text;
+  li.append(mvBtn(secH, tasks, i, -1), ttl, mvBtn(secH, tasks, i, 1));
+  return li;
+}
+
+// Disabled at the ends of the list rather than hidden, so rows do not shift
+// under a thumb that is tapping the same spot repeatedly.
+function mvBtn(secH, tasks, i, dir){
+  const b = document.createElement("button");
+  b.className = "mv";
+  b.setAttribute("aria-label", dir < 0 ? "Move up" : "Move down");
+  b.innerHTML = dir < 0 ? "&#9650;" : "&#9660;";
+  if (i + dir < 0 || i + dir >= tasks.length) b.disabled = true;
+  else b.onclick = () => nudge(secH, tasks, i, dir);
+  return b;
 }
 const esc = s => s.replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
@@ -691,6 +776,17 @@ function moveTo(sec, text, to){
   if (sec === to) return;
   push({ t:"move", from:sec, to, text, done:false });
   toast("Moved to " + to, { t:"move", from:to, to:sec, text, done:false });
+}
+
+// One step up lands above the task that was above. One step down lands above
+// the task two below, or at the bottom when there is none. The op names that
+// neighbour rather than a slot, so a replay cannot move the task twice.
+// No undo toast here: the opposite arrow is already under the thumb, and a
+// snackbar on every tap would cover the list being arranged.
+function nudge(sec, tasks, i, dir){
+  const before = dir < 0 ? tasks[i - 1].text
+                         : (i + 2 < tasks.length ? tasks[i + 2].text : null);
+  push({ t:"reorder", file:"tasks", sec, text: tasks[i].text, before });
 }
 
 function delTask(sec, text){

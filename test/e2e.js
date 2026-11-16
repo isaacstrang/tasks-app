@@ -272,13 +272,162 @@ test("a note tab shows an unflushed entry immediately, marked pending", async ()
   }, { cfg: NOTE_CFG });
 });
 
+/* ---------- reorder ---------- */
+// Done deliberately holds two tasks here. With one it would be excluded for
+// having nothing to arrange, and the test would pass without proving that a
+// section outside SECTIONS is excluded on its own merits.
+const ORDERED = "# Tasks\n\n## Today\n\n- [ ] First task\n- [ ] Second task\n- [ ] Third task\n\n" +
+                "## This week\n\n- [ ] Review the welcome email\n\n## Longer term\n\n## Ice box\n\n" +
+                "## Done\n\n- [x] Rope (done Aug 18)\n- [x] Maps (done Aug 17)\n";
+
+// Sections render in SECTIONS order, so Today is 0 and This week is 1. Done is
+// pinned last and only rendered when it has tasks, which here it does.
+const sec = (page, i) => page.locator("section.sec").nth(i);
+const todayTasks = text => text.split("## Today")[1].split("## This week")[0]
+                               .split("\n").filter(l => /^- \[[ x]\] /.test(l));
+const row = (page, i, n) => sec(page, i).locator("li.task").nth(n);
+
+test("moving a task up rewrites the order in the file, tightly", async () => {
+  const files = { "001 Tasks.md": ORDERED };
+  await withApp(files, async page => {
+    await sec(page, 0).locator(".reorderbtn").click();
+    await row(page, 0, 2).locator('[aria-label="Move up"]').click();
+    await until(() => todayTasks(files["001 Tasks.md"])[1] === "- [ ] Third task",
+                "the new order to reach the file");
+    assert.deepStrictEqual(todayTasks(files["001 Tasks.md"]),
+      ["- [ ] First task", "- [ ] Third task", "- [ ] Second task"]);
+    assert.ok(/## Today\n\n- \[ \] First task\n- \[ \] Third task\n- \[ \] Second task\n\n## This week/
+      .test(files["001 Tasks.md"]), "reorder loosened the list or lost the heading spacing");
+  });
+});
+
+test("moving a task down past the bottom sends it to the end of the section", async () => {
+  const files = { "001 Tasks.md": ORDERED };
+  await withApp(files, async page => {
+    await sec(page, 0).locator(".reorderbtn").click();
+    await row(page, 0, 1).locator('[aria-label="Move down"]').click();
+    await until(() => todayTasks(files["001 Tasks.md"])[2] === "- [ ] Second task",
+                "the task to reach the bottom of Today");
+    assert.deepStrictEqual(todayTasks(files["001 Tasks.md"]),
+      ["- [ ] First task", "- [ ] Third task", "- [ ] Second task"]);
+    assert.ok(/- \[ \] Second task\n\n## This week/.test(files["001 Tasks.md"]),
+      "the task at the bottom gained a blank line above it");
+  });
+});
+
+// The whole reason the op carries a neighbour instead of an index: a flush can
+// fail after GitHub has committed, and the op is then replayed onto content
+// that already contains its effect.
+test("a 409 retry replays the reorder without moving the task twice", async () => {
+  const files = { "001 Tasks.md": ORDERED };
+  await withApp(files, async page => {
+    await sec(page, 0).locator(".reorderbtn").click();
+    await row(page, 0, 2).locator('[aria-label="Move up"]').click();
+    await until(() => todayTasks(files["001 Tasks.md"])[1] === "- [ ] Third task",
+                "the reorder to land after a 409");
+    await page.waitForTimeout(700);
+    assert.deepStrictEqual(todayTasks(files["001 Tasks.md"]),
+      ["- [ ] First task", "- [ ] Third task", "- [ ] Second task"],
+      "the reorder was applied more than once");
+  }, { fail409: 1 });
+});
+
+test("several taps in a row land as one coherent order in the file", async () => {
+  const files = { "001 Tasks.md": ORDERED };
+  await withApp(files, async page => {
+    await sec(page, 0).locator(".reorderbtn").click();
+    // Walk the third task to the top, two taps on the same row position.
+    await row(page, 0, 2).locator('[aria-label="Move up"]').click();
+    await row(page, 0, 1).locator('[aria-label="Move up"]').click();
+    await until(() => todayTasks(files["001 Tasks.md"])[0] === "- [ ] Third task",
+                "the task to reach the top of Today");
+    await page.waitForTimeout(700);
+    assert.deepStrictEqual(todayTasks(files["001 Tasks.md"]),
+      ["- [ ] Third task", "- [ ] First task", "- [ ] Second task"]);
+  });
+});
+
+test("the queue survives being offline mid-reorder and flushes the order on reconnect", async () => {
+  const files = { "001 Tasks.md": ORDERED };
+  await withApp(files, async page => {
+    await page.context().setOffline(true);
+    await page.evaluate(() => window.dispatchEvent(new Event("offline")));
+    await sec(page, 0).locator(".reorderbtn").click();
+    await row(page, 0, 2).locator('[aria-label="Move up"]').click();
+    await page.waitForTimeout(1200);
+    assert.strictEqual(files["001 Tasks.md"], ORDERED, "wrote to GitHub while offline");
+    await page.context().setOffline(false);
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await until(() => todayTasks(files["001 Tasks.md"])[1] === "- [ ] Third task",
+                "the queued reorder to flush on reconnect");
+    assert.deepStrictEqual(todayTasks(files["001 Tasks.md"]),
+      ["- [ ] First task", "- [ ] Third task", "- [ ] Second task"]);
+  });
+});
+
+test("reorder mode removes the checkboxes, so no task can be completed by mis-tap", async () => {
+  const files = { "001 Tasks.md": ORDERED };
+  await withApp(files, async page => {
+    await sec(page, 0).locator(".reorderbtn").click();
+    assert.strictEqual(await sec(page, 0).locator(".check").count(), 0,
+                       "a checkbox is still tappable in reorder mode");
+    await row(page, 0, 0).locator(".ttl").click();
+    await page.waitForTimeout(500);
+    assert.strictEqual(await page.locator("#sheet.on").count(), 0,
+                       "the action sheet opened from reorder mode");
+    assert.strictEqual(files["001 Tasks.md"], ORDERED,
+                       "the file changed while only tapping a title");
+  });
+});
+
+test("the arrows at the ends of the list are disabled rather than missing", async () => {
+  const files = { "001 Tasks.md": ORDERED };
+  await withApp(files, async page => {
+    await sec(page, 0).locator(".reorderbtn").click();
+    assert.strictEqual(await row(page, 0, 0).locator('[aria-label="Move up"]').isDisabled(), true);
+    assert.strictEqual(await row(page, 0, 2).locator('[aria-label="Move down"]').isDisabled(), true);
+    assert.strictEqual(await row(page, 0, 1).locator('[aria-label="Move down"]').isDisabled(), false);
+    assert.strictEqual(await row(page, 0, 1).locator('[aria-label="Move up"]').isDisabled(), false);
+  });
+});
+
+test("Done and a one-task section are offered no reorder control", async () => {
+  const files = { "001 Tasks.md": ORDERED };
+  await withApp(files, async page => {
+    assert.strictEqual(await sec(page, 0).locator(".reorderbtn").count(), 1,
+                       "Today was not offered reorder");
+    assert.strictEqual(await sec(page, 1).locator(".reorderbtn").count(), 0,
+                       "a one-task section was offered reorder");
+    // Done starts collapsed, so open it before concluding anything about it.
+    await sec(page, 4).locator(".sechead").click();
+    await page.waitForSelector("section.sec:nth-of-type(5) li.task", { state: "attached" }).catch(() => {});
+    assert.strictEqual(await sec(page, 4).locator(".reorderbtn").count(), 0,
+                       "Done was offered reorder");
+  });
+});
+
+test("leaving reorder mode brings the checkboxes back", async () => {
+  const files = { "001 Tasks.md": ORDERED };
+  await withApp(files, async page => {
+    const pill = sec(page, 0).locator(".reorderbtn");
+    await pill.click();
+    assert.strictEqual(await pill.textContent(), "Done");
+    await pill.click();
+    assert.strictEqual(await pill.textContent(), "Reorder");
+    assert.strictEqual(await sec(page, 0).locator(".check").count(), 3,
+                       "the checkboxes did not come back");
+  });
+});
+
 // npm run shots: light and dark screenshots of each tab, for eyeballing a CSS
 // change without a phone in your hand.
 async function shots(){
   const dir = path.join(__dirname, "shots");
   fs.mkdirSync(dir, { recursive: true });
   for (const scheme of ["light", "dark"]){
-    const files = { "001 Tasks.md": BASE, "WU Ideas.md": IDEAS, "Lessons Learned.md": LESSONS };
+    // ORDERED, not BASE: a one-task Today draws no reorder control, so the
+    // shots could not show the thing a CSS change here most likely breaks.
+    const files = { "001 Tasks.md": ORDERED, "WU Ideas.md": IDEAS, "Lessons Learned.md": LESSONS };
     await withApp(files, async page => {
       await page.emulateMedia({ colorScheme: scheme });
       await page.setViewportSize({ width: 390, height: 844 });
@@ -287,6 +436,10 @@ async function shots(){
         await page.waitForTimeout(400);
         await page.screenshot({ path: path.join(dir, `${t}-${scheme}.png`) });
       }
+      await page.click('[data-tab="tasks"]');
+      await sec(page, 0).locator(".reorderbtn").click();
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: path.join(dir, `reorder-${scheme}.png`) });
     }, { cfg: NOTE_CFG });
     console.log("  wrote " + scheme + " shots");
   }
